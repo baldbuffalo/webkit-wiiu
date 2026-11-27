@@ -30,6 +30,208 @@ def patch_file(root: Path, relative_path: str, replacements: list[tuple[str, str
     return True
 
 
+
+def patch_big_endian_wav_header(root: Path, relative_path: str) -> bool:
+    """Make RIFF/WAV integer fields endian-correct on Wii U PowerPC."""
+    path = root / relative_path
+    if not path.is_file():
+        raise FileNotFoundError(f"Expected WebRTC source file is missing: {relative_path}")
+
+    original = path.read_text(encoding="utf-8")
+    updated = original
+
+    def replace_all(old: str, new: str, expected: int) -> None:
+        nonlocal updated
+        old_count = updated.count(old)
+        new_count = updated.count(new)
+        if old_count == expected:
+            updated = updated.replace(old, new)
+        elif old_count == 0 and new_count >= expected:
+            return
+        else:
+            raise RuntimeError(
+                f"Unexpected patch anchor count in {relative_path}: "
+                f"expected {expected} old occurrence(s), found {old_count}; "
+                f"already-patched occurrences: {new_count}"
+            )
+
+    replace_all(
+        """#ifndef WEBRTC_ARCH_LITTLE_ENDIAN
+#error "Code not working properly for big endian platforms."
+#endif""",
+        """// RIFF/WAVE stores its numeric fields in little-endian order on every
+// host. Wii U's PowerPC CPU is big-endian, so explicitly convert the integer
+// fields when reading/writing packed WAV headers.
+uint16_t HostToLittleEndian(uint16_t value) {
+#if defined(WEBRTC_ARCH_BIG_ENDIAN)
+  return __builtin_bswap16(value);
+#else
+  return value;
+#endif
+}
+
+uint32_t HostToLittleEndian(uint32_t value) {
+#if defined(WEBRTC_ARCH_BIG_ENDIAN)
+  return __builtin_bswap32(value);
+#else
+  return value;
+#endif
+}
+
+uint16_t LittleEndianToHost(uint16_t value) {
+  return HostToLittleEndian(value);
+}
+
+uint32_t LittleEndianToHost(uint32_t value) {
+  return HostToLittleEndian(value);
+}""",
+        1,
+    )
+
+    replace_all(
+        """uint32_t PackFourCC(char a, char b, char c, char d) {
+  uint32_t packed_value =
+      static_cast<uint32_t>(a) | static_cast<uint32_t>(b) << 8 |
+      static_cast<uint32_t>(c) << 16 | static_cast<uint32_t>(d) << 24;
+  return packed_value;
+}""",
+        """uint32_t PackFourCC(char a, char b, char c, char d) {
+#if defined(WEBRTC_ARCH_BIG_ENDIAN)
+  return static_cast<uint32_t>(static_cast<uint8_t>(a)) << 24 |
+         static_cast<uint32_t>(static_cast<uint8_t>(b)) << 16 |
+         static_cast<uint32_t>(static_cast<uint8_t>(c)) << 8 |
+         static_cast<uint32_t>(static_cast<uint8_t>(d));
+#else
+  return static_cast<uint32_t>(static_cast<uint8_t>(a)) |
+         static_cast<uint32_t>(static_cast<uint8_t>(b)) << 8 |
+         static_cast<uint32_t>(static_cast<uint8_t>(c)) << 16 |
+         static_cast<uint32_t>(static_cast<uint8_t>(d)) << 24;
+#endif
+}""",
+        1,
+    )
+
+    replacements = [
+        (
+            "header.riff.header.Size = RiffChunkSize(bytes_in_payload, *header_size);",
+            "header.riff.header.Size = HostToLittleEndian(RiffChunkSize(bytes_in_payload, *header_size));",
+            2,
+        ),
+        (
+            "header.fmt.header.Size = kFmtPcmSubchunkSize;",
+            "header.fmt.header.Size = HostToLittleEndian(kFmtPcmSubchunkSize);",
+            1,
+        ),
+        (
+            "header.fmt.header.Size = kFmtIeeeFloatSubchunkSize;",
+            "header.fmt.header.Size = HostToLittleEndian(kFmtIeeeFloatSubchunkSize);",
+            1,
+        ),
+        (
+            "header.fmt.AudioFormat = MapWavFormatToHeaderField(WavFormat::kWavFormatPcm);",
+            "header.fmt.AudioFormat = HostToLittleEndian(MapWavFormatToHeaderField(WavFormat::kWavFormatPcm));",
+            1,
+        ),
+        (
+            """header.fmt.AudioFormat =
+      MapWavFormatToHeaderField(WavFormat::kWavFormatIeeeFloat);""",
+            """header.fmt.AudioFormat = HostToLittleEndian(
+      MapWavFormatToHeaderField(WavFormat::kWavFormatIeeeFloat));""",
+            1,
+        ),
+        (
+            "header.fmt.NumChannels = static_cast<uint16_t>(num_channels);",
+            "header.fmt.NumChannels = HostToLittleEndian(static_cast<uint16_t>(num_channels));",
+            2,
+        ),
+        (
+            "header.fmt.SampleRate = sample_rate;",
+            "header.fmt.SampleRate = HostToLittleEndian(static_cast<uint32_t>(sample_rate));",
+            2,
+        ),
+        (
+            "header.fmt.ByteRate = ByteRate(num_channels, sample_rate, bytes_per_sample);",
+            "header.fmt.ByteRate = HostToLittleEndian(ByteRate(num_channels, sample_rate, bytes_per_sample));",
+            2,
+        ),
+        (
+            "header.fmt.BlockAlign = BlockAlign(num_channels, bytes_per_sample);",
+            "header.fmt.BlockAlign = HostToLittleEndian(BlockAlign(num_channels, bytes_per_sample));",
+            2,
+        ),
+        (
+            "header.fmt.BitsPerSample = static_cast<uint16_t>(8 * bytes_per_sample);",
+            "header.fmt.BitsPerSample = HostToLittleEndian(static_cast<uint16_t>(8 * bytes_per_sample));",
+            2,
+        ),
+        (
+            "header.fmt.ExtensionSize = 0;",
+            "header.fmt.ExtensionSize = HostToLittleEndian(static_cast<uint16_t>(0));",
+            1,
+        ),
+        (
+            "header.fact.header.Size = 4;",
+            "header.fact.header.Size = HostToLittleEndian(static_cast<uint32_t>(4));",
+            1,
+        ),
+        (
+            "header.fact.SampleLength = static_cast<uint32_t>(num_channels * num_samples);",
+            "header.fact.SampleLength = HostToLittleEndian(static_cast<uint32_t>(num_channels * num_samples));",
+            1,
+        ),
+        (
+            "header.data.header.Size = static_cast<uint32_t>(bytes_in_payload);",
+            "header.data.header.Size = HostToLittleEndian(static_cast<uint32_t>(bytes_in_payload));",
+            2,
+        ),
+        (
+            """    if (chunk_header->ID == sought_chunk_id)
+      return true;  // Sought chunk found.""",
+            """    chunk_header->Size = LittleEndianToHost(chunk_header->Size);
+    if (chunk_header->ID == sought_chunk_id)
+      return true;  // Sought chunk found.""",
+            1,
+        ),
+        (
+            """  const uint32_t fmt_size = fmt_subchunk->header.Size;""",
+            """  fmt_subchunk->AudioFormat = LittleEndianToHost(fmt_subchunk->AudioFormat);
+  fmt_subchunk->NumChannels = LittleEndianToHost(fmt_subchunk->NumChannels);
+  fmt_subchunk->SampleRate = LittleEndianToHost(fmt_subchunk->SampleRate);
+  fmt_subchunk->ByteRate = LittleEndianToHost(fmt_subchunk->ByteRate);
+  fmt_subchunk->BlockAlign = LittleEndianToHost(fmt_subchunk->BlockAlign);
+  fmt_subchunk->BitsPerSample = LittleEndianToHost(fmt_subchunk->BitsPerSample);
+  const uint32_t fmt_size = fmt_subchunk->header.Size;""",
+            1,
+        ),
+        (
+            """    if (ext_size != 0)
+      return false;""",
+            """    ext_size = static_cast<int16_t>(
+        LittleEndianToHost(static_cast<uint16_t>(ext_size)));
+    if (ext_size != 0)
+      return false;""",
+            1,
+        ),
+        (
+            """  if (header.riff.header.ID != PackFourCC('R', 'I', 'F', 'F'))""",
+            """  header.riff.header.Size = LittleEndianToHost(header.riff.header.Size);
+  if (header.riff.header.ID != PackFourCC('R', 'I', 'F', 'F'))""",
+            1,
+        ),
+    ]
+
+    for old, new, expected in replacements:
+        replace_all(old, new, expected)
+
+    if updated == original:
+        print(f"ALREADY PATCHED {relative_path}")
+        return False
+
+    path.write_text(updated, encoding="utf-8", newline="\n")
+    print(f"PATCHED {relative_path} for big-endian RIFF/WAV fields")
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", type=Path, required=True)
@@ -203,6 +405,9 @@ inline bool hwaes_capable() { return false; }
     changed = 0
     for relative_path, replacements in patches:
         changed += patch_file(root, str(vendor / relative_path), replacements)
+    changed += patch_big_endian_wav_header(
+        root, str(vendor / "webrtc/common_audio/wav_header.cc")
+    )
 
     # In this WebKit snapshot LibWebRTCUtils.h is not tracked. The only use in
     # LibWebRTCProvider.cpp was for toRef(), already supplied by the included
