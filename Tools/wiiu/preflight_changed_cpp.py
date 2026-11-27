@@ -168,6 +168,27 @@ for entry in commands:
     except (OSError, ValueError):
         missing_depfiles.add(source)
 
+# A full-engine cache snapshot can contain older WebCore objects under the same
+# CMake target directory even though the bootstrap compile database does not
+# include them. Remove those orphaned outputs before preflight and the bootstrap
+# build so they cannot be mistaken for WKC cache entries or inflate its manifest.
+wkc_object_directory = (build_dir / "CMakeFiles" / "WebKitWKC.dir").resolve()
+active_wkc_objects = {
+    output for output in object_sources
+    if output.is_relative_to(wkc_object_directory)
+}
+stale_wkc_objects = []
+if wkc_object_directory.is_dir():
+    for output in wkc_object_directory.rglob("*.obj"):
+        resolved = output.resolve()
+        if resolved not in active_wkc_objects:
+            stale_wkc_objects.append(output)
+for output in stale_wkc_objects:
+    output.unlink(missing_ok=True)
+    output.with_name(output.name + ".d").unlink(missing_ok=True)
+if stale_wkc_objects:
+    print(f"Removed {len(stale_wkc_objects)} stale WKC-target object(s) outside the current bootstrap graph.")
+
 ninja_dep_sources = set()
 try:
     ninja_result = subprocess.run(
@@ -232,6 +253,7 @@ for relative in changed:
     # dependency-aware Ninja dry-run below; do not mark them as blanket-unsafe.
     if relative in {
         "Tools/wiiu/preflight_changed_cpp.py",
+        "Tools/wiiu/snapshot_successful_ninja_outputs.py",
         "Source/WebKit/WKC/CMakeLists.txt",
         "Source/WebKit/WKC/scripts/generate-webcore-derived-sources.py",
     }:
