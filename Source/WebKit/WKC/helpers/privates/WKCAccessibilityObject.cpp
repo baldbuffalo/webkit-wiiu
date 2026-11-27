@@ -9,6 +9,8 @@
 #include "helpers/WKCAccessibilityObject.h"
 #include "helpers/privates/WKCAccessibilityObjectPrivate.h"
 
+#include "AccessibilityObject.h"
+
 #include "FloatRect.h"
 
 namespace WKC {
@@ -87,6 +89,30 @@ String AccessibilityObject::title() const
     return isValid() ? toWKCString(m_private->webcore()->title()) : String();
 }
 
+String AccessibilityObject::accessibleName() const
+{
+    if (!isValid())
+        return { };
+
+    auto* object = dynamicDowncast<WebCore::AccessibilityObject>(m_private->webcore());
+    return toWKCString(object ? object->computedLabel() : m_private->webcore()->title());
+}
+
+String AccessibilityObject::keyShortcuts() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->keyShortcuts()) : String();
+}
+
+String AccessibilityObject::identifier() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->identifierAttribute()) : String();
+}
+
+String AccessibilityObject::invalidStatus() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->invalidStatusIncludingInferred()) : String();
+}
+
 String AccessibilityObject::description() const
 {
     return isValid() ? toWKCString(m_private->webcore()->description()) : String();
@@ -135,6 +161,36 @@ bool AccessibilityObject::isExpanded() const
 bool AccessibilityObject::isVisible() const
 {
     return isValid() && m_private->webcore()->isVisible();
+}
+
+bool AccessibilityObject::isIndeterminate() const
+{
+    return isValid() && m_private->webcore()->isIndeterminate();
+}
+
+bool AccessibilityObject::isMultiSelectable() const
+{
+    return isValid() && m_private->webcore()->isMultiSelectable();
+}
+
+bool AccessibilityObject::isOffScreen() const
+{
+    return isValid() && m_private->webcore()->isOffScreen();
+}
+
+bool AccessibilityObject::isRequired() const
+{
+    return isValid() && m_private->webcore()->isRequired();
+}
+
+bool AccessibilityObject::canSetValue() const
+{
+    return isValid() && m_private->webcore()->canSetValueAttribute();
+}
+
+bool AccessibilityObject::supportsPressAction() const
+{
+    return isValid() && m_private->webcore()->supportsPressAction();
 }
 
 WKCFloatRect AccessibilityObject::frame() const
