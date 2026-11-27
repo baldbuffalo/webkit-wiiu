@@ -96,7 +96,7 @@ jobs:
           PY
 
   build:
-    needs: cancel-superseded-runs:
+    needs: cancel-superseded-runs
     runs-on: ubuntu-latest
     container:
       image: devkitpro/devkitppc:latest
