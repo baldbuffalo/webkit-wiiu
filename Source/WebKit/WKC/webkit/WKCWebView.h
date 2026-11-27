@@ -312,6 +312,7 @@ public:
     void setAccessibilityEnabled(bool enabled);
     bool accessibilityEnabled() const;
     WKC::AccessibilityObject accessibilityRootObject();
+    WKC::AccessibilityObject accessibilityFocusedObject();
 
     bool canGoBack();
     bool canGoBackOrForward(int steps);
