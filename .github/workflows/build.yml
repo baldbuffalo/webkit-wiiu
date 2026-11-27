@@ -575,10 +575,14 @@ jobs:
         shell: bash
         run: |
           rm -rf build
-          if [ -f .cmake-build-cache/build.ninja ]; then
+          if [ -d .cmake-build-cache ]; then
             mkdir -p build
             cp -a .cmake-build-cache/. build/
-            echo "Restored the successful-output CMake cache snapshot."
+            if [ -s build/build.ninja ]; then
+              echo "Restored the successful-output CMake cache snapshot with its Ninja build graph."
+            else
+              echo "Restored successful compiler outputs and CMake metadata; the configure step will regenerate the missing build.ninja."
+            fi
           else
             echo "No successful-output CMake cache found; starting with a clean build directory."
           fi

@@ -26,7 +26,7 @@
 
 #pragma once
 
-#include "Exception.h"
+#include <WebCore/Exception.h>
 #include <JavaScriptCore/Forward.h>
 #include <JavaScriptCore/JSCJSValue.h>
 #include <span>

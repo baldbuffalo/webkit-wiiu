@@ -28,27 +28,43 @@ def has_commit(revision):
     ).returncode == 0
 
 
+ref = os.environ.get("GITHUB_REF")
+history_fetched = False
 has_successful_baseline = bool(baseline and has_commit(baseline))
+
+# actions/checkout uses a shallow history by default. The cached baseline is
+# usually the previous successful commit, so fetch recent branch history before
+# deciding that the baseline is missing and forcing a complete bootstrap build.
+if baseline and not has_successful_baseline and ref:
+    print(f"Cached WKC baseline {baseline} is outside the shallow checkout; fetching recent history from {ref}.")
+    subprocess.run(
+        ["git", "fetch", "--no-tags", "--no-recurse-submodules", "--deepen=100", "origin", ref],
+        check=True,
+    )
+    history_fetched = True
+    has_successful_baseline = has_commit(baseline)
+
 if has_successful_baseline:
     compare_from = baseline
     print(f"Checking source changes since last successful WKC build: {baseline}")
 else:
     if baseline:
-        print("Cached source baseline is unavailable; rebuilding the bootstrap range.")
+        print("Cached source baseline is still unavailable; rebuilding the bootstrap range.")
     else:
         print("No successful-build baseline found; checking recent commits once.")
 
     compare_from = "HEAD~5"
     if not has_commit(compare_from):
-        ref = os.environ.get("GITHUB_REF")
         if not ref:
             print("::error::Checkout history is too shallow and GITHUB_REF is unavailable.")
             raise SystemExit(1)
-        print(f"Checkout does not contain {compare_from}; fetching additional history from {ref}.")
-        subprocess.run(
-            ["git", "fetch", "--no-tags", "--no-recurse-submodules", "--deepen=10", "origin", ref],
-            check=True,
-        )
+        if not history_fetched:
+            print(f"Checkout does not contain {compare_from}; fetching additional history from {ref}.")
+            subprocess.run(
+                ["git", "fetch", "--no-tags", "--no-recurse-submodules", "--deepen=100", "origin", ref],
+                check=True,
+            )
+            history_fetched = True
 
     if not has_commit(compare_from):
         recent = subprocess.check_output(

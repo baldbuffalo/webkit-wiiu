@@ -342,6 +342,16 @@ def main() -> int:
         copied, skipped_unbuilt, skipped_failed, skipped_dirty, skipped_stale_compiler_outputs = copy_snapshot(
             build_dir, destination, graph_files, successful, failed, dirty
         )
+
+        # These sidecars are control metadata, not Ninja target outputs. Preserve
+        # them explicitly so a successful-output snapshot keeps its source baseline
+        # and the verified bootstrap object manifest across workflow runs.
+        preserved_control_metadata: list[str] = []
+        for name in (".wkc-cache-base-sha", ".wkc-bootstrap-objects"):
+            source_item = build_dir / name
+            if source_item.is_file():
+                shutil.copy2(source_item, destination / name)
+                preserved_control_metadata.append(name)
     except OSError as error:
         print(f"Could not create successful-output cache snapshot: {error}", file=sys.stderr)
         if destination.exists() and not destination.is_symlink():
@@ -357,6 +367,7 @@ def main() -> int:
     print(f"Dirty or not-yet-built outputs excluded by Ninja dry run: {skipped_dirty}")
     print(f"Stale compiler object/depfile outputs outside the current Ninja graph excluded: {skipped_stale_compiler_outputs}")
     print(f"Other build metadata and successful outputs copied: {copied}")
+    print(f"Control metadata preserved in cache: {', '.join(preserved_control_metadata) if preserved_control_metadata else 'none'}")
     print(f"Active build directory left untouched: {build_dir}")
     return 0
 
