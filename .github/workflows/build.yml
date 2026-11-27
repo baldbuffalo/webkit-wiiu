@@ -847,8 +847,11 @@ jobs:
 
       - name: Install CafeGLSL Wii U runtime compiler
         shell: bash
+        env:
+          CAFEGLSL_IMAGE_DIGEST: ${{ steps.cafeglsl-image.outputs.digest }}
         run: |
           set -euo pipefail
+          test -n "$CAFEGLSL_IMAGE_DIGEST"
           CACHE_DIR="$GITHUB_WORKSPACE/.cafeglsl-cache"
           ARTIFACTS_ARCHIVE="$CACHE_DIR/artifacts.tar"
           mkdir -p "$CACHE_DIR"
@@ -863,7 +866,10 @@ jobs:
             rm -rf "$ROOTFS"
             mkdir -p "$ROOTFS"
 
-            skopeo copy docker://ghcr.io/exzap/cafeglsl-wiiu:latest \
+            # Pull the exact digest checked at the start of this run.
+            # This prevents the mutable :latest tag changing between inspect
+            # and copy, which could otherwise cache the wrong image contents.
+            skopeo copy "docker://ghcr.io/exzap/cafeglsl-wiiu@$CAFEGLSL_IMAGE_DIGEST" \
               "docker-archive:$IMAGE_ARCHIVE:ghcr.io/exzap/cafeglsl-wiiu:latest"
 
             # Keep the Python backport and pip download cache with the image's
