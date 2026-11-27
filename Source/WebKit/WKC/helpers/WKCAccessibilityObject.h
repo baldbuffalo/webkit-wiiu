@@ -17,6 +17,32 @@ class AccessibilityObjectPrivate;
 // copied to keep an object alive across callbacks.
 class WKC_API AccessibilityObject {
 public:
+    enum class Relation : unsigned {
+        None,
+        Actions,
+        ActionsOf,
+        ActiveDescendant,
+        ActiveDescendantOf,
+        ControlledBy,
+        ControllerFor,
+        DescribedBy,
+        DescriptionFor,
+        Details,
+        DetailsFor,
+        ErrorMessage,
+        ErrorMessageFor,
+        FlowsFrom,
+        FlowsTo,
+        Headers,
+        HeaderFor,
+        LabeledBy,
+        LabelFor,
+        NativeLabeledBy,
+        NativeLabelFor,
+        OwnedBy,
+        OwnerFor
+    };
+
     AccessibilityObject();
     AccessibilityObject(const AccessibilityObject&);
     AccessibilityObject& operator=(const AccessibilityObject&);
@@ -25,6 +51,9 @@ public:
     bool isValid() const;
     unsigned role() const;
     String roleDescription() const;
+    String ariaRoleDescription() const;
+    String currentValue() const;
+    String popupValue() const;
     String title() const;
     // Computed accessible name (ARIA, native labels, alt text and contents).
     String accessibleName() const;
@@ -48,6 +77,12 @@ public:
     bool isRequired() const;
     bool canSetValue() const;
     bool supportsPressAction() const;
+    bool isPressed() const;
+    bool isVisited() const;
+    bool isModal() const;
+    bool hasPopup() const;
+    int posInSet() const;
+    int setSize() const;
 
     // Bounds are relative to the current viewport, in WebCore view coordinates.
     WKCFloatRect frame() const;
@@ -55,6 +90,8 @@ public:
     unsigned childCount() const;
     AccessibilityObject childAt(unsigned index) const;
     AccessibilityObject parent() const;
+    unsigned relatedObjectCount(Relation) const;
+    AccessibilityObject relatedObjectAt(Relation, unsigned index) const;
 
     bool press() const;
     bool setValue(const String&) const;
