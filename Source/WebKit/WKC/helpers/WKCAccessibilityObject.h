@@ -26,6 +26,11 @@ public:
     unsigned role() const;
     String roleDescription() const;
     String title() const;
+    // Computed accessible name (ARIA, native labels, alt text and contents).
+    String accessibleName() const;
+    String keyShortcuts() const;
+    String identifier() const;
+    String invalidStatus() const;
     String description() const;
     String text() const;
     String value() const;
@@ -37,6 +42,12 @@ public:
     bool isFocused() const;
     bool isExpanded() const;
     bool isVisible() const;
+    bool isIndeterminate() const;
+    bool isMultiSelectable() const;
+    bool isOffScreen() const;
+    bool isRequired() const;
+    bool canSetValue() const;
+    bool supportsPressAction() const;
 
     // Bounds are relative to the current viewport, in WebCore view coordinates.
     WKCFloatRect frame() const;
