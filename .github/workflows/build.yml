@@ -1016,6 +1016,7 @@ jobs:
         id: build-wkc
         shell: bash
         run: |
+          echo "wkc_cache_reused=false" >> "$GITHUB_OUTPUT"
           CACHE_STATE=""
           if [ -s build/.wkc-preflight-objects-safe ]; then
             CACHE_STATE="$(cat build/.wkc-preflight-objects-safe)"
@@ -1024,6 +1025,7 @@ jobs:
           # Skip the bootstrap target on a verified unchanged cache. The full
           # build will reuse these objects and add the missing WebCore sources.
           if [ "$CACHE_STATE" = "unchanged" ] && [ -s build/libWebKitWKC.a ]; then
+            echo "wkc_cache_reused=true" >> "$GITHUB_OUTPUT"
             echo "WKC files unchanged: skipping WKC file build and reusing the files saved in cache"
             : > build.log
             BUILD_STATUS=0
@@ -1058,7 +1060,9 @@ jobs:
 
       - name: Create WKC cache snapshot from successful outputs
         id: prepare-wkc-cache-snapshot
-        if: always() && steps.build-wkc.outcome != 'skipped'
+        # An unchanged, verified cache was already saved under an immutable key.
+        # Do not create another snapshot or save an identical run-specific copy.
+        if: always() && steps.build-wkc.outcome != 'skipped' && steps.build-wkc.outputs.wkc_cache_reused != 'true'
         shell: bash
         env:
           BUILD_OUTCOME: ${{ steps.build-wkc.outcome }}
