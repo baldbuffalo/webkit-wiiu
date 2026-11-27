@@ -1,6 +1,7 @@
 name: Build WebKit WiiU (WKC)
 
 permissions:
+  actions: write
   contents: write
 
 on:
@@ -9,15 +10,93 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Keep the newest main revision moving through CI. Cancel stale in-progress
-# builds when a new fix lands; otherwise an obsolete/hung cross-build can block
-# validation of the page-loading changes queued behind it.
-concurrency:
-  group: webkit-wiiu-build-${{ github.ref }}
-  cancel-in-progress: true
+# Do not put all runs in one concurrency group: a new run can still wait for
+# an older runner to finish shutting down. Give every run a chance to start,
+# then let the first job cancel older runs for the same ref before the build.
 
 jobs:
+  cancel-superseded-runs:
+    name: Prioritize the newest workflow run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel older queued and running runs for this ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_API_URL: ${{ github.api_url }}
+          GH_REPOSITORY: ${{ github.repository }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+          CURRENT_RUN_NUMBER: ${{ github.run_number }}
+          TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
+          TARGET_PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          WORKFLOW_PATH: .github/workflows/build.yml
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          api = os.environ['GH_API_URL'].rstrip('/')
+          repo = os.environ['GH_REPOSITORY']
+          token = os.environ['GH_TOKEN']
+          current_id = int(os.environ['CURRENT_RUN_ID'])
+          current_number = int(os.environ['CURRENT_RUN_NUMBER'])
+          branch = os.environ['TARGET_BRANCH']
+          pr_number = os.environ['TARGET_PR_NUMBER'].strip()
+          workflow_path = os.environ['WORKFLOW_PATH']
+          headers = {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': f'Bearer {token}',
+              'X-GitHub-Api-Version': '2022-11-28',
+          }
+
+          def request(method, path):
+              req = urllib.request.Request(api + path, headers=headers, method=method)
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  body = response.read()
+                  return json.loads(body) if body else {}
+
+          candidates = {}
+          for status in ('in_progress', 'queued', 'pending', 'waiting', 'requested'):
+              query = urllib.parse.urlencode({'branch': branch, 'status': status, 'per_page': 100})
+              try:
+                  payload = request('GET', f'/repos/{repo}/actions/runs?{query}')
+              except Exception as error:
+                  print(f'::warning::Could not list {status} workflow runs: {error}')
+                  continue
+              for run in payload.get('workflow_runs', []):
+                  if run.get('path') != workflow_path or int(run.get('run_number', 0)) >= current_number:
+                      continue
+                  if int(run.get('id', 0)) == current_id:
+                      continue
+                  if pr_number:
+                      same_ref = any(str(item.get('number', '')) == pr_number for item in run.get('pull_requests', []))
+                  else:
+                      same_ref = run.get('head_branch') == branch
+                  if same_ref and run.get('status') != 'completed':
+                      candidates[int(run['id'])] = run
+
+          for run in sorted(candidates.values(), key=lambda item: int(item.get('run_number', 0))):
+              run_id = int(run['id'])
+              print(f"Cancelling superseded run #{run.get('run_number')} ({run_id}): {run.get('display_title', '')}")
+              path = f'/repos/{repo}/actions/runs/{run_id}/cancel'
+              try:
+                  request('POST', path)
+              except Exception as error:
+                  print(f'::warning::Normal cancellation failed for run {run_id}: {error}; trying force-cancel.')
+                  try:
+                      request('POST', f'/repos/{repo}/actions/runs/{run_id}/force-cancel')
+                  except Exception as force_error:
+                      print(f'::warning::Could not force-cancel superseded run {run_id}: {force_error}')
+
+          if not candidates:
+              print(f'No older active runs found for {branch}.')
+          PY
+
   build:
+    needs: cancel-superseded-runs:
     runs-on: ubuntu-latest
     container:
       image: devkitpro/devkitppc:latest
@@ -894,6 +973,100 @@ jobs:
         with:
           path: .cafeglsl-cache
           key: cafeglsl-wiiu-${{ steps.cafeglsl-image.outputs.digest }}
+
+      # Keep only the cache for the CafeGLSL image currently selected by :latest.
+      # Save/verify the replacement first, then remove older digest-keyed entries.
+      - name: Delete outdated CafeGLSL runtime compiler caches
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_API_URL: ${{ github.api_url }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GH_REF: ${{ github.ref }}
+          GH_BRANCH: ${{ github.head_ref || github.ref_name }}
+          GH_PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          GH_RUN_NUMBER: ${{ github.run_number }}
+          GH_WORKFLOW_PATH: .github/workflows/build.yml
+          CURRENT_CACHE_KEY: cafeglsl-wiiu-${{ steps.cafeglsl-image.outputs.digest }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          api = os.environ['GH_API_URL'].rstrip('/')
+          repo = os.environ['GH_REPOSITORY']
+          token = os.environ['GH_TOKEN']
+          ref = os.environ['GH_REF']
+          branch = os.environ['GH_BRANCH']
+          pr_number = os.environ['GH_PR_NUMBER'].strip()
+          current_number = int(os.environ['GH_RUN_NUMBER'])
+          workflow_path = os.environ['GH_WORKFLOW_PATH']
+          current_key = os.environ['CURRENT_CACHE_KEY']
+          headers = {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': f'Bearer {token}',
+              'X-GitHub-Api-Version': '2022-11-28',
+          }
+
+          def request(method, path):
+              req = urllib.request.Request(api + path, headers=headers, method=method)
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  body = response.read()
+                  return json.loads(body) if body else {}
+
+          # An older run may still be finishing its cancellation. Never let it
+          # delete the cache just created for a newer run.
+          query = urllib.parse.urlencode({'branch': branch, 'per_page': 100})
+          runs = request('GET', f'/repos/{repo}/actions/runs?{query}').get('workflow_runs', [])
+          newer = []
+          for run in runs:
+              if run.get('path') != workflow_path or int(run.get('run_number', 0)) <= current_number:
+                  continue
+              if pr_number:
+                  same_ref = any(str(item.get('number', '')) == pr_number for item in run.get('pull_requests', []))
+              else:
+                  same_ref = run.get('head_branch') == branch
+              if same_ref:
+                  newer.append(run)
+          if newer:
+              newest = max(newer, key=lambda item: int(item.get('run_number', 0)))
+              print(f"Skipping cache cleanup; newer run #{newest.get('run_number')} owns this ref.")
+              raise SystemExit(0)
+
+          caches = []
+          for page in range(1, 101):
+              query = urllib.parse.urlencode({'ref': ref, 'per_page': 100, 'page': page})
+              payload = request('GET', f'/repos/{repo}/actions/caches?{query}')
+              batch = payload.get('actions_caches', [])
+              caches.extend(batch)
+              if len(batch) < 100:
+                  break
+
+          current_exists = any(item.get('key') == current_key for item in caches)
+          if not current_exists:
+              print(f'::warning::Current CafeGLSL cache {current_key} was not found for {ref}; leaving older caches untouched.')
+              raise SystemExit(0)
+
+          obsolete = [item for item in caches if str(item.get('key', '')).startswith('cafeglsl-wiiu-') and item.get('key') != current_key]
+          removed = 0
+          for item in obsolete:
+              cache_id = int(item['id'])
+              try:
+                  request('DELETE', f'/repos/{repo}/actions/caches/{cache_id}')
+                  removed += 1
+                  print(f"Deleted obsolete CafeGLSL cache {item.get('key')} (id {cache_id}).")
+              except urllib.error.HTTPError as error:
+                  if error.code == 404:
+                      removed += 1
+                      continue
+                  print(f'::warning::Could not delete CafeGLSL cache {cache_id}: HTTP {error.code}')
+          print(f'Removed {removed} obsolete CafeGLSL cache(s); retained {current_key}.')
+          PY
 
       - name: Configure (CMake)
         shell: bash
