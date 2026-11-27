@@ -35,6 +35,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="fail rather than create a snapshot if no FAILED Ninja edges are found",
     )
+    parser.add_argument(
+        "--object-manifest",
+        help="write successful, clean WebKitWKC object paths relative to the build directory",
+    )
     return parser.parse_args()
 
 
@@ -193,11 +197,12 @@ def copy_snapshot(
     successful_outputs: set[Path],
     failed_outputs: set[Path],
     dirty_outputs: set[Path],
-) -> tuple[int, int, int, int]:
+) -> tuple[int, int, int, int, int]:
     copied_files = 0
     skipped_unbuilt = 0
     skipped_failed = 0
     skipped_dirty = 0
+    skipped_stale_compiler_outputs = 0
     destination.mkdir(parents=True, exist_ok=True)
 
     for current_root, directory_names, file_names in os.walk(source, topdown=True, followlinks=False):
@@ -221,6 +226,20 @@ def copy_snapshot(
             source_item = current / name
             destination_item = destination / source_item.relative_to(source)
 
+            in_cmake_target_directory = (
+                "CMakeFiles" in source_item.parts
+                and any(part.endswith(".dir") for part in source_item.parts)
+            )
+            if in_cmake_target_directory and source_item.name.endswith((".obj", ".o")):
+                if source_item not in graph_outputs:
+                    skipped_stale_compiler_outputs += 1
+                    continue
+            if in_cmake_target_directory and source_item.name.endswith((".obj.d", ".o.d")):
+                object_output = source_item.with_name(source_item.name[:-2])
+                if object_output not in graph_outputs:
+                    skipped_stale_compiler_outputs += 1
+                    continue
+
             if source_item in graph_outputs:
                 if source_item in failed_outputs:
                     skipped_failed += 1
@@ -238,7 +257,7 @@ def copy_snapshot(
                 shutil.copy2(source_item, destination_item)
             copied_files += 1
 
-    return copied_files, skipped_unbuilt, skipped_failed, skipped_dirty
+    return copied_files, skipped_unbuilt, skipped_failed, skipped_dirty, skipped_stale_compiler_outputs
 
 
 def main() -> int:
@@ -247,6 +266,7 @@ def main() -> int:
     build_dir = workspace_path(args.build_dir, workspace)
     destination = workspace_path(args.destination, workspace)
     log_path = workspace_path(args.log, workspace)
+    manifest_path = workspace_path(args.object_manifest, workspace) if args.object_manifest else None
 
     for label, path in (("Build directory", build_dir), ("Cache destination", destination)):
         try:
@@ -262,6 +282,16 @@ def main() -> int:
     if destination == build_dir or destination.is_relative_to(build_dir) or build_dir.is_relative_to(destination):
         print("The cache destination must be separate from the active build directory.", file=sys.stderr)
         return 2
+
+    if manifest_path is not None:
+        try:
+            manifest_path.relative_to(build_dir)
+        except ValueError:
+            print(f"Refusing object manifest outside the build directory: {manifest_path}", file=sys.stderr)
+            return 2
+        if manifest_path.is_symlink():
+            print(f"Refusing to replace a symlink object manifest: {manifest_path}", file=sys.stderr)
+            return 2
 
     try:
         successful = read_successful_outputs(build_dir)
@@ -284,6 +314,24 @@ def main() -> int:
         if path.is_file() or path.is_symlink()
     }
 
+    eligible_successes = graph_files & successful - dirty - failed
+    manifest_objects: list[Path] = []
+    if manifest_path is not None:
+        object_root = build_dir / "CMakeFiles" / "WebKitWKC.dir"
+        manifest_objects = sorted(
+            path for path in eligible_successes
+            if path.suffix == ".obj" and path.is_relative_to(object_root)
+        )
+        try:
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text(
+                "".join(f"{path.relative_to(build_dir).as_posix()}\n" for path in manifest_objects),
+                encoding="utf-8",
+            )
+        except OSError as error:
+            print(f"Could not write successful WKC object manifest: {error}", file=sys.stderr)
+            return 2
+
     if destination.is_symlink():
         print(f"Refusing to replace a symlink cache destination: {destination}", file=sys.stderr)
         return 2
@@ -291,7 +339,7 @@ def main() -> int:
     try:
         if destination.exists():
             shutil.rmtree(destination)
-        copied, skipped_unbuilt, skipped_failed, skipped_dirty = copy_snapshot(
+        copied, skipped_unbuilt, skipped_failed, skipped_dirty, skipped_stale_compiler_outputs = copy_snapshot(
             build_dir, destination, graph_files, successful, failed, dirty
         )
     except OSError as error:
@@ -301,11 +349,13 @@ def main() -> int:
         return 2
 
     print(f"Ninja build-graph output files checked: {len(graph_files)}")
-    eligible_successes = graph_files & successful - dirty - failed
     print(f"Successful and currently clean outputs eligible for cache: {len(eligible_successes)}")
+    if manifest_path is not None:
+        print(f"Successful clean WKC object files written to manifest: {len(manifest_objects)}")
     print(f"Outputs with no successful build record excluded: {skipped_unbuilt}")
     print(f"Failed outputs excluded: {skipped_failed}")
     print(f"Dirty or not-yet-built outputs excluded by Ninja dry run: {skipped_dirty}")
+    print(f"Stale compiler object/depfile outputs outside the current Ninja graph excluded: {skipped_stale_compiler_outputs}")
     print(f"Other build metadata and successful outputs copied: {copied}")
     print(f"Active build directory left untouched: {build_dir}")
     return 0
