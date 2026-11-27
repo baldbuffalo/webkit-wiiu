@@ -138,6 +138,9 @@ public:
     WebCore::IntRect rootViewToScreen(const WebCore::IntRect& r) const final { return r; }
     WebCore::IntPoint accessibilityScreenToRootView(const WebCore::IntPoint& p) const final { return p; }
     WebCore::IntRect rootViewToAccessibilityScreen(const WebCore::IntRect& r) const final { return r; }
+    void postAccessibilityNotification(WebCore::AccessibilityObject&, WebCore::AXNotification) final;
+    void postAccessibilityNodeTextChangeNotification(WebCore::AccessibilityObject*, WebCore::AXTextChange, unsigned, const WTF::String&) final;
+    void postAccessibilityFrameLoadingEventNotification(WebCore::AccessibilityObject*, WebCore::AXLoadingEvent) final;
     void didFinishLoadingImageForElement(WebCore::HTMLImageElement&) final { }
     PlatformPageClient platformPageClient() const final { return (PlatformPageClient)m_view; }
     void intrinsicContentsSizeChanged(const WebCore::IntSize&) const final { }

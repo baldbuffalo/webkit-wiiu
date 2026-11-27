@@ -38,6 +38,7 @@ class GraphicsLayer;
 class HTMLParserQuirks;
 class HitTestResult;
 class Node;
+class AccessibilityObject;
 class Page;
 class ScrollView;
 class SecurityOrigin;
@@ -830,6 +831,22 @@ public:
         (void)count;
     }
     virtual void bringInspectorFrontendToFront() { }
+
+    // Native WKC accessibility bridge. The object exposes WebCore's semantic
+    // tree (role, name, value, states, bounds, parent/children and actions).
+    // Copy the handle to retain it beyond this callback.
+    virtual void postAccessibilityNotification(const AccessibilityObject&, const String& notificationName)
+    {
+        (void)notificationName;
+    }
+    virtual void postAccessibilityNodeTextChangeNotification(const AccessibilityObject&, const String& changeType, unsigned offset, const String& text)
+    {
+        (void)changeType; (void)offset; (void)text;
+    }
+    virtual void postAccessibilityFrameLoadingEventNotification(const AccessibilityObject&, const String& eventName)
+    {
+        (void)eventName;
+    }
 
 };
 

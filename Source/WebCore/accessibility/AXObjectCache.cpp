@@ -310,6 +310,14 @@ std::optional<AccessibilityMode> AXObjectCache::attemptMainThreadModeTransition(
     return attemptModeTransition(AccessibilityMode::MainThread);
 }
 
+void AXObjectCache::setAccessibilityEnabled(bool enabled)
+{
+    if (enabled)
+        attemptModeTransition(AccessibilityMode::MainThread);
+    else if (!isAccessibilityModeOff(accessibilityMode()))
+        attemptModeTransition(AccessibilityMode::Off);
+}
+
 void AXObjectCache::disableAccessibilityForTesting()
 {
     if (isAccessibilityModeOff(accessibilityMode()))

@@ -91,6 +91,9 @@
 
 // WebCore
 #include "BackForwardController.h"
+#include "AXObjectCache.h"
+#include "Document.h"
+#include "helpers/privates/WKCAccessibilityObjectPrivate.h"
 #include "Chrome.h"
 #include "CookieJar.h"
 #include "WKCStorageNamespaceProvider.h"
@@ -2033,6 +2036,33 @@ WKCWebFrame* WKCWebView::focusedFrame()
     auto* f = m_private->m_corePage->focusController().focusedFrame();
     auto* lf = dynamicDowncast<WebCore::LocalFrame>(f);
     return lf ? kit(lf) : nullptr;
+}
+
+void WKCWebView::setAccessibilityEnabled(bool enabled)
+{
+    WebCore::AXObjectCache::setAccessibilityEnabled(enabled);
+}
+
+bool WKCWebView::accessibilityEnabled() const
+{
+    return WebCore::AXObjectCache::accessibilityEnabled();
+}
+
+WKC::AccessibilityObject WKCWebView::accessibilityRootObject()
+{
+    if (!m_private)
+        return { };
+
+    auto* frame = m_private->localMainFrame();
+    if (!frame)
+        return { };
+
+    auto* document = frame->document();
+    auto* cache = document ? document->axObjectCache() : nullptr;
+    if (!cache)
+        return { };
+
+    return WKC::AccessibilityObjectPrivate::create(cache->rootObjectForFrame(*frame));
 }
 
 // ─── Script ───────────────────────────────────────────────────────────────────

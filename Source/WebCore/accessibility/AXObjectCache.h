@@ -539,6 +539,7 @@ public:
     // to avoid interfering with other web content processes running tests.
     WEBCORE_EXPORT static void disableAccessibilityForTesting();
     WEBCORE_EXPORT static std::optional<AccessibilityMode> attemptMainThreadModeTransition();
+    WEBCORE_EXPORT static void setAccessibilityEnabled(bool);
     WEBCORE_EXPORT static std::atomic<AccessibilityMode> gAccessibilityMode;
     static AccessibilityMode accessibilityMode() { return gAccessibilityMode.load(std::memory_order_relaxed); }
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)

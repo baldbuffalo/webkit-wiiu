@@ -41,6 +41,7 @@
 #include "helpers/WKCLinkHash.h"
 #include "helpers/WKCHelpersEnums.h"
 #include "helpers/WKCString.h"
+#include "helpers/WKCAccessibilityObject.h"
 
 #include <stddef.h>
 
@@ -306,6 +307,11 @@ public:
 
     WKC::Page* core();
     WKC::WKCSettings* settings();
+
+    // Accessibility mode is process-wide across WKCWebView instances.
+    void setAccessibilityEnabled(bool enabled);
+    bool accessibilityEnabled() const;
+    WKC::AccessibilityObject accessibilityRootObject();
 
     bool canGoBack();
     bool canGoBackOrForward(int steps);

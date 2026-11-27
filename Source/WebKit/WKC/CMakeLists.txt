@@ -618,6 +618,13 @@ if (WKC_ENABLE_FULL_WEBCORE)
         "${WEBCORE_DIR}/platform/network/ResourceHandle.cpp"
     )
     list(REMOVE_ITEM WEBCORE_CORE_SOURCES ${WEBCORE_PLATFORM_SOURCES})
+
+    # WKC exposes WebCore's live accessibility tree and forwards its platform
+    # notifications through ChromeClientWKC to the embedder.
+    file(GLOB_RECURSE WEBCORE_ACCESSIBILITY_WKC_SOURCES CONFIGURE_DEPENDS
+        "${WEBCORE_DIR}/accessibility/wkc/*.cpp")
+    list(APPEND WEBCORE_PLATFORM_SOURCES ${WEBCORE_ACCESSIBILITY_WKC_SOURCES})
+
     list(REMOVE_DUPLICATES WEBCORE_CORE_SOURCES)
     list(LENGTH WEBCORE_CORE_SOURCES _WKC_WEBCORE_SOURCE_COUNT)
     message(STATUS "WKC full WebCore probe: ${_WKC_WEBCORE_SOURCE_COUNT} source files selected from Sources.txt/generated outputs")

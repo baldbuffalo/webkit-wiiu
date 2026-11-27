@@ -52,6 +52,7 @@
 #include <wtf/RefCounted.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/ThreadSafeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/WallTime.h>
 #include <wtf/threads/BinarySemaphore.h>
 
@@ -81,7 +82,10 @@ class AccessibilityObjectAtspi;
 
 typedef WebCore::AccessibilityObjectAtspi AccessibilityObjectWrapper;
 
-#elif PLATFORM(PLAYSTATION) || PLATFORM(HAIKU) || PLATFORM(WKC)
+#elif PLATFORM(WKC)
+namespace WebCore { class AccessibilityObjectWrapperWKC; }
+typedef WebCore::AccessibilityObjectWrapperWKC AccessibilityObjectWrapper;
+#elif PLATFORM(PLAYSTATION) || PLATFORM(HAIKU)
 class AccessibilityObjectWrapper : public RefCounted<AccessibilityObjectWrapper> { };
 #else
 class AccessibilityObjectWrapper;
@@ -1541,6 +1545,24 @@ private:
     RefPtr<AccessibilityObjectAtspi> m_wrapper;
 #endif
 };
+
+#if PLATFORM(WKC)
+// WebCore keeps one platform wrapper per live accessibility object. The WKC
+// wrapper is a weak handle: AXObjectCache owns the object, so the wrapper must
+// never create an object -> wrapper -> object reference cycle.
+class AccessibilityObjectWrapperWKC : public RefCounted<AccessibilityObjectWrapperWKC> {
+public:
+    explicit AccessibilityObjectWrapperWKC(AXCoreObject& object)
+        : m_object(object)
+    {
+    }
+
+    AXCoreObject* coreObject() const { return m_object.get(); }
+
+private:
+    WeakPtr<AXCoreObject> m_object;
+};
+#endif
 
 inline Vector<AXID> axIDs(const AXCoreObject::AccessibilityChildrenVector& objects)
 {

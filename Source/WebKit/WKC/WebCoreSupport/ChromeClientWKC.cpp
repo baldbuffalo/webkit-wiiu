@@ -36,6 +36,11 @@
 #include "WKCWebFrame.h"
 #include "WKCWebFramePrivate.h"
 #include "ChromeClientWKC.h"
+#include "AXObjectCache.h"
+#include "AXNotifications.h"
+#include "AccessibilityObject.h"
+#include "helpers/WKCAccessibilityObject.h"
+#include "helpers/privates/WKCAccessibilityObjectPrivate.h"
 #include "PopupMenuWKC.h"
 #include "SearchPopupMenuWKC.h"
 #include "FileChooser.h"
@@ -484,6 +489,68 @@ ChromeClientWKC::bringInspectorFrontendToFront()
         m_appClient->bringInspectorFrontendToFront();
 }
 #endif // ENABLE(JAVASCRIPT_DEBUGGER)
+
+static WKC::String toWKCAccessibilityString(const WTF::String& value)
+{
+    auto utf8 = value.utf8();
+    return WKC::String::fromUTF8(utf8.legacyCStringPointer(), utf8.length());
+}
+
+static WKC::String toWKCAccessibilityNotificationName(WebCore::AXNotification notification)
+{
+    switch (notification) {
+#define WKC_AX_NOTIFICATION_CASE(name) case WebCore::AXNotification::name: return WKC::String(#name);
+        WEBCORE_AXNOTIFICATION_KEYS(WKC_AX_NOTIFICATION_CASE)
+#undef WKC_AX_NOTIFICATION_CASE
+    }
+    return WKC::String("Unknown");
+}
+
+static WKC::String toWKCAccessibilityTextChangeName(WebCore::AXTextChange change)
+{
+    switch (change) {
+    case WebCore::AXTextChange::Inserted: return WKC::String("Inserted");
+    case WebCore::AXTextChange::Deleted: return WKC::String("Deleted");
+    case WebCore::AXTextChange::Replaced: return WKC::String("Replaced");
+    case WebCore::AXTextChange::AttributesChanged: return WKC::String("AttributesChanged");
+    }
+    return WKC::String("Unknown");
+}
+
+static WKC::String toWKCAccessibilityLoadingEventName(WebCore::AXLoadingEvent event)
+{
+    switch (event) {
+    case WebCore::AXLoadingEvent::Started: return WKC::String("Started");
+    case WebCore::AXLoadingEvent::Reloaded: return WKC::String("Reloaded");
+    case WebCore::AXLoadingEvent::Failed: return WKC::String("Failed");
+    case WebCore::AXLoadingEvent::Finished: return WKC::String("Finished");
+    }
+    return WKC::String("Unknown");
+}
+
+void ChromeClientWKC::postAccessibilityNotification(WebCore::AccessibilityObject& object, WebCore::AXNotification notification)
+{
+    if (!m_appClient)
+        return;
+    auto accessibleObject = WKC::AccessibilityObjectPrivate::create(&object);
+    m_appClient->postAccessibilityNotification(accessibleObject, toWKCAccessibilityNotificationName(notification));
+}
+
+void ChromeClientWKC::postAccessibilityNodeTextChangeNotification(WebCore::AccessibilityObject* object, WebCore::AXTextChange change, unsigned offset, const WTF::String& text)
+{
+    if (!m_appClient || !object)
+        return;
+    auto accessibleObject = WKC::AccessibilityObjectPrivate::create(object);
+    m_appClient->postAccessibilityNodeTextChangeNotification(accessibleObject, toWKCAccessibilityTextChangeName(change), offset, toWKCAccessibilityString(text));
+}
+
+void ChromeClientWKC::postAccessibilityFrameLoadingEventNotification(WebCore::AccessibilityObject* object, WebCore::AXLoadingEvent event)
+{
+    if (!m_appClient || !object)
+        return;
+    auto accessibleObject = WKC::AccessibilityObjectPrivate::create(object);
+    m_appClient->postAccessibilityFrameLoadingEventNotification(accessibleObject, toWKCAccessibilityLoadingEventName(event));
+}
 
 #if ENABLE(NOTIFICATIONS)
 static WKC::String toWKCNotificationString(const WTF::String& value)
