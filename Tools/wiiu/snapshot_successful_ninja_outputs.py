@@ -111,6 +111,11 @@ def read_dirty_outputs(build_dir: Path, workspace: Path) -> set[Path]:
         ("output ", " doesn't exist"),
         ("output ", " older than most recent input "),
         ("output ", " is dirty"),
+        # Ninja can also report generated force targets as a bare path:
+        # "ninja explain: /.../VerifyGlobs.cmake_force is dirty".
+        # Keep this after the prefixed form and validate the resolved path
+        # against build_dir below before excluding it from the cache.
+        ("", " is dirty"),
         ("command line changed for ", ""),
         ("deps for ", " are missing"),
         ("deps for ", " are out of date"),
