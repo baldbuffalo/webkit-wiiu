@@ -444,6 +444,9 @@ jobs:
           # in the curl port fails with 'LogNetwork not declared'.
           ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/Logging.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/Logging.h
           ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/ThreadGlobalData.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/ThreadGlobalData.h
+          # PAL also has a SleepDisabler.h with only the PAL type declaration.
+          # WebCore TUs need the complete WebCore::SleepDisabler definition.
+          ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/SleepDisabler.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/SleepDisabler.h
           # WebCore/platform/Logging.h #includes <WebCore/WebCoreLogDefinitions.h>,
           # normally generated from LogMessages. Its contents are only used under
           # ENABLE(LOGD_BLOCKING_IN_WEBCONTENT) (off for WKC), so an empty stub is
@@ -565,8 +568,8 @@ jobs:
           path: .cmake-build-cache
           key: cmake-build-success-restore-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            cmake-build-success-full-
             cmake-build-success-wkc-
+            cmake-build-success-full-
 
       - name: Use successful-only CMake cache snapshot
         shell: bash
@@ -960,15 +963,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      # Generate LLIntAssembly.h (the C_LOOP interpreter body that
-      # LowLevelInterpreter.cpp #includes) OUTSIDE the CMake build graph, so a
-      # failure here can only leave that one file unable to find its header --
-      # it can never zero the build. Runs after Configure so it can reuse the
-      # exact per-TU compile flags CMake recorded in compile_commands.json to
-      # compile the offset extractors identically (offsets are target-specific).
-      # asm.rb reads struct offsets from magic markers in the compiled ELF
-      # object, so the extractors only need to compile (-c), never link.
-      - name: Generate LLIntAssembly.h (isolated; never fails the build)
+      # Generate the C_LOOP interpreter body required by LowLevelInterpreter.cpp.
+      # This is a required build input: any generator or offset-extractor failure
+      # must stop the job instead of allowing later compilation to continue.
+      - name: Generate LLIntAssembly.h
+        continue-on-error: false
         shell: bash
         run: |
           set -euo pipefail
@@ -1101,19 +1100,26 @@ jobs:
             SNAPSHOT_ARGS+=(--require-failures)
           fi
           python3 "$GITHUB_WORKSPACE/Tools/wiiu/snapshot_successful_ninja_outputs.py" \
-            --build-dir build --destination .cmake-build-cache --log build.log "${SNAPSHOT_ARGS[@]}"
+            --build-dir build --destination .cmake-build-cache --log build.log \
+            --object-manifest build/.wkc-bootstrap-objects "${SNAPSHOT_ARGS[@]}"
 
-      # Only advance the preflight baseline after the full WKC library build
-      # succeeds. Failed builds retain the prior SHA so changed files are retried.
-      - name: Record successful WKC build baseline
+      # Advance the source baseline before taking the snapshot so the saved
+      # successful-output cache carries the same baseline as its object files.
+      # Failed builds retain the prior SHA so changed files are retried.
+      - name: Record successful WKC source baseline
         if: steps.build-wkc.outcome == 'success'
         shell: bash
         run: |
-          mkdir -p build
           printf '%s\n' "$GITHUB_SHA" > build/.wkc-cache-base-sha
-          (cd build && find CMakeFiles/WebKitWKC.dir -type f -name '*.obj' -printf '%p\n' | sort > .wkc-bootstrap-objects)
+
+      # The object manifest was generated from successful, clean Ninja outputs
+      # by the snapshot step. Preserve only the verified bootstrap archive here.
+      - name: Preserve successful WKC bootstrap archive
+        if: steps.build-wkc.outcome == 'success'
+        shell: bash
+        run: |
           test -s build/.wkc-bootstrap-objects
-          echo "Saved $(wc -l < build/.wkc-bootstrap-objects) bootstrap WKC object paths for full-engine reuse."
+          echo "Saved $(wc -l < build/.wkc-bootstrap-objects) successful clean bootstrap WKC object paths for full-engine reuse."
           mkdir -p dist-bootstrap/lib
           cp build/libWebKitWKC.a dist-bootstrap/lib/libWebKitWKC.a
           test -s dist-bootstrap/lib/libWebKitWKC.a
@@ -1335,8 +1341,8 @@ jobs:
                       description = match.group(4)
                       if "Re-checking globbed directories" in description or "Re-running CMake" in description:
                           continue
-                      current = int(match.group(2)) + offset - 1
-                      total = int(match.group(3)) + offset - 1
+                      current = int(match.group(2)) + offset
+                      total = int(match.group(3)) + offset
                       line = f"{match.group(1)}[{current}/{total}]{description}"
                   sys.stdout.write(line + "\n")
                   sys.stdout.flush()
