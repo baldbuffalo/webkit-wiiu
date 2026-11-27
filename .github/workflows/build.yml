@@ -1038,50 +1038,6 @@ jobs:
             BUILD_STATUS=${PIPESTATUS[0]}
             set -e
           fi
-          echo "===== ccache stats ====="
-          ccache --show-stats || true
-          echo "===== pthread capability probe (from earlier step) ====="
-          cat "$GITHUB_WORKSPACE/pthread_probe.txt" 2>/dev/null || true
-          echo "===== FAILED translation units: $(grep -c '^FAILED:' build.log) ====="
-          # ninja prints 'FAILED: <target>' per failed edge; list the source files
-          # so each fast round is a precise burn-down scoreboard.
-          grep '^FAILED:' build.log \
-            | sed -E 's#.*/(Source/[^ ]+\.(cpp|obj)).*#\1#; s#\.obj$##' \
-            | sort -u || true
-          echo "===== distinct compiler errors (top 50, numbers normalized) ====="
-          grep -hoE 'error: .*' build.log | sed -E 's/[0-9]+/N/g' \
-            | sort | uniq -c | sort -rn | head -50 || true
-          echo "===== WTF-file errors (file: first error) ====="
-          awk '/^FAILED:.*Source\/WTF\// {f=1} /error:/ && f {print; f=0}' build.log \
-            | sed -E 's#.*(Source/WTF/[^ :]+).*(error:.*)#\1  \2#' | sort -u | head -40 || true
-          echo "===== WTF warnings: distinct types (count) ====="
-          # Warnings only surface for files actually (re)compiled this run; a warm
-          # ccache leaves cached files silent, so a full/cold build is needed to see
-          # them all. Scoped to Source/WTF; numbers normalized to group variants.
-          grep -hoE 'Source/WTF/[^ ]+ ?.*warning: .*' build.log \
-            | sed -E 's#.*(warning:.*)#\1#; s/[0-9]+/N/g' \
-            | sort | uniq -c | sort -rn | head -50 || true
-          echo "===== WTF warnings in wtf/wiiu (our files) ====="
-          grep -hE 'Source/WTF/wtf/wiiu/[^ ]+:[0-9]+.*warning:' build.log \
-            | sed -E 's#.*(Source/WTF/wtf/wiiu/[^ ]+:[0-9]+):[0-9]+: (warning:.*)#\1  \2#' \
-            | sort -u | head -40 || true
-          echo "===== WTF warnings (file:line, deduped) ====="
-          grep -hoE 'Source/WTF/[^ ]+:[0-9]+:[0-9]+: warning: .*' build.log \
-            | sort -u | head -40 || true
-          echo "===== WKC-glue file -> first error (scoreboard) ====="
-          awk '
-            /^FAILED:.*WebKitWKC.dir\/(helpers|WebCoreSupport|webkit|accessor)\// {
-              f=$0; sub(/.*WebKitWKC.dir\//,"",f); sub(/\.obj.*/,"",f); seen=0; next
-            }
-            /error:/ && f && !seen { sub(/^.*error:/,"error:",$0); print f "  " $0; seen=1 }
-          ' build.log | sort -u | head -120 || true
-          echo "===== CoreFoundation include chain (first occurrence) ====="
-          awk '
-            /In file included from/ { buf=$0; capturing=1; next }
-            capturing && /^ *from / { buf=buf "\n" $0; next }
-            capturing && /CoreFoundation\/CoreFoundation.h: No such file/ { print buf "\n" $0; exit }
-            { capturing=0 }
-          ' build.log | head -40 || true
           if [ "$BUILD_STATUS" -ne 0 ]; then
             echo "::error::WebKit WKC compilation failed (exit $BUILD_STATUS); refusing to package an incomplete libWebKitWKC.a."
             exit "$BUILD_STATUS"
