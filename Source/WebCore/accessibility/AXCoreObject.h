@@ -1558,6 +1558,7 @@ public:
     }
 
     AXCoreObject* coreObject() const { return m_object.get(); }
+    void detach() { m_object = nullptr; }
 
 private:
     WeakPtr<AXCoreObject> m_object;
