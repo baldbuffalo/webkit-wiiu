@@ -1088,6 +1088,15 @@ jobs:
             exit "$BUILD_STATUS"
           fi
 
+      # Advance the source baseline before taking the snapshot so the saved
+      # successful-output cache carries the same baseline as its object files.
+      # Failed builds retain the prior SHA so changed files are retried.
+      - name: Record successful WKC source baseline
+        if: steps.build-wkc.outcome == 'success'
+        shell: bash
+        run: |
+          printf '%s\n' "$GITHUB_SHA" > build/.wkc-cache-base-sha
+
       - name: Create WKC cache snapshot from successful outputs
         id: prepare-wkc-cache-snapshot
         if: always() && steps.build-wkc.outcome != 'skipped'
@@ -1102,15 +1111,6 @@ jobs:
           python3 "$GITHUB_WORKSPACE/Tools/wiiu/snapshot_successful_ninja_outputs.py" \
             --build-dir build --destination .cmake-build-cache --log build.log \
             --object-manifest build/.wkc-bootstrap-objects "${SNAPSHOT_ARGS[@]}"
-
-      # Advance the source baseline before taking the snapshot so the saved
-      # successful-output cache carries the same baseline as its object files.
-      # Failed builds retain the prior SHA so changed files are retried.
-      - name: Record successful WKC source baseline
-        if: steps.build-wkc.outcome == 'success'
-        shell: bash
-        run: |
-          printf '%s\n' "$GITHUB_SHA" > build/.wkc-cache-base-sha
 
       # The object manifest was generated from successful, clean Ninja outputs
       # by the snapshot step. Preserve only the verified bootstrap archive here.
