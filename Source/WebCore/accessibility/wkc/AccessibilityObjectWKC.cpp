@@ -12,8 +12,9 @@ namespace WebCore {
 
 void AccessibilityObject::detachPlatformWrapper(AccessibilityDetachmentType)
 {
-    // WKC has no OS-owned accessibility peer to detach. AXCoreObject::detachWrapper()
-    // releases the WebCore wrapper immediately after this hook returns.
+    // Invalidate weak platform handles before AXCoreObject releases its wrapper.
+    if (auto* platformWrapper = wrapper())
+        platformWrapper->detach();
 }
 
 bool AccessibilityObject::accessibilityIgnoreAttachment() const
