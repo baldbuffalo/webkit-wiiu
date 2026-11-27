@@ -1091,7 +1091,9 @@ jobs:
       # Save the staged WKC snapshot before the full-engine expansion.
       # Only successful outputs are present in this snapshot after a failed WKC build.
       - name: Save WKC files in cache
-        if: always() && steps.prepare-wkc-cache-snapshot.outcome == 'success'
+        # Do not create a new run-specific cache key when the existing WKC
+        # snapshot was restored and verified unchanged.
+        if: always() && steps.prepare-wkc-cache-snapshot.outcome == 'success' && steps.build-wkc.outputs.wkc_cache_reused != 'true'
         uses: actions/cache/save@v5.0.4
         with:
           path: .cmake-build-cache
