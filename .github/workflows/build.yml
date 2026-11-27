@@ -65,20 +65,45 @@ jobs:
           path: |
             /var/cache/apt/archives
             /var/lib/apt/lists
-          key: apt-${{ runner.os }}-cmake-ninja-icu-gperf-ruby-perl-v2
+          key: apt-${{ runner.os }}-cmake-ninja-icu-gperf-ruby-perl-pip-skopeo-v3
 
-      - name: Update system and install CMake + build tools
+      - name: Install CMake + build tools from the apt cache
         id: install-build-tools
+        shell: bash
         run: |
-          apt-get update -q
-          UPGRADE_PLAN="$(apt-get -s upgrade)"
-          if printf '%s\n' "$UPGRADE_PLAN" | grep -q '^Inst '; then
-            echo "Package upgrades are available; applying them."
-            DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+          set -euo pipefail
+
+          # The job container is recreated for every workflow run. The Actions
+          # cache preserves downloaded .deb archives and package indexes, not
+          # the container's installed /usr and dpkg database. Reuse those files
+          # and install only packages that are genuinely absent; do not upgrade
+          # the whole devkitPro image on every run.
+          if [ "${{ steps.cache-apt.outputs.cache-hit }}" != "true" ]; then
+            echo "No apt package cache restored; refreshing package indexes."
+            apt-get update -q
           else
-            echo "No package upgrades available; skipping upgrade."
+            echo "Apt package indexes and downloaded archives restored from cache; skipping apt-get update."
           fi
-          apt-get install -y ca-certificates cmake ninja-build python3 libicu-dev libssl-dev libcurl4-openssl-dev libsqlite3-dev libpsl-dev libxml2-dev gperf ruby perl ccache skopeo
+
+          APT_PACKAGES=(
+            ca-certificates cmake ninja-build python3 python3-pip python3-venv
+            libicu-dev libssl-dev libcurl4-openssl-dev libsqlite3-dev
+            libpsl-dev libxml2-dev gperf ruby perl ccache skopeo
+          )
+          MISSING_PACKAGES=()
+          for package in "${APT_PACKAGES[@]}"; do
+            if ! dpkg-query -W -f='${db:Status-Status}\n' "$package" 2>/dev/null | grep -qx installed; then
+              MISSING_PACKAGES+=("$package")
+            fi
+          done
+
+          if [ "${#MISSING_PACKAGES[@]}" -eq 0 ]; then
+            echo "All required CMake/build packages are already installed; skipping apt-get install."
+          else
+            echo "Installing ${#MISSING_PACKAGES[@]} missing package(s) using restored apt archives where available:"
+            printf '  %s\n' "${MISSING_PACKAGES[@]}"
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${MISSING_PACKAGES[@]}"
+          fi
 
       - name: Save apt package cache
         if: always() && steps.install-build-tools.outcome == 'success' && steps.cache-apt.outputs.cache-hit != 'true'
@@ -754,37 +779,54 @@ jobs:
               print('patched:', name)
           PY
 
+      - name: Resolve CafeGLSL image digest
+        id: cafeglsl-image
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIGEST="$(skopeo inspect --format '{{.Digest}}' docker://ghcr.io/exzap/cafeglsl-wiiu:latest)"
+          test -n "$DIGEST"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "CafeGLSL image digest: $DIGEST"
+
+      - name: Restore CafeGLSL Wii U runtime compiler cache
+        id: cache-cafeglsl
+        uses: actions/cache/restore@v5.0.4
+        with:
+          path: .cafeglsl-cache
+          key: cafeglsl-wiiu-${{ steps.cafeglsl-image.outputs.digest }}
+
       - name: Install CafeGLSL Wii U runtime compiler
         shell: bash
         run: |
           set -euo pipefail
-          IMAGE_ARCHIVE=/tmp/cafeglsl-wiiu-image.tar
-          ROOTFS=/tmp/cafeglsl-wiiu-rootfs
-          rm -f "$IMAGE_ARCHIVE"
-          rm -rf "$ROOTFS"
-          mkdir -p "$ROOTFS"
+          CACHE_DIR="$GITHUB_WORKSPACE/.cafeglsl-cache"
+          ARTIFACTS_ARCHIVE="$CACHE_DIR/artifacts.tar"
+          mkdir -p "$CACHE_DIR"
 
-          # docker-archive carries both manifest.json and its layer tar files
-          # inside one archive. The dir: transport writes layer blobs under
-          # content-addressed names that vary by skopeo version, so guessing a
-          # filename from the manifest is not reliable.
-          skopeo copy docker://ghcr.io/exzap/cafeglsl-wiiu:latest \
-            "docker-archive:$IMAGE_ARCHIVE:ghcr.io/exzap/cafeglsl-wiiu:latest"
+          # Cache the extracted portlib artifacts by the immutable container
+          # image digest. This avoids pulling and unpacking the entire GHCR
+          # image on every fresh GitHub-hosted job container.
+          if [ ! -s "$ARTIFACTS_ARCHIVE" ]; then
+            IMAGE_ARCHIVE=/tmp/cafeglsl-wiiu-image.tar
+            ROOTFS=/tmp/cafeglsl-wiiu-rootfs
+            rm -f "$IMAGE_ARCHIVE"
+            rm -rf "$ROOTFS"
+            mkdir -p "$ROOTFS"
 
-          # The devkitpro container's system Python may predate Python 3.12,
-          # when tarfile's built-in "data" extraction filter was introduced.
-          # Use the maintained backport rather than falling back to unsafe extraction.
-          apt-get install -y python3-pip python3-venv
-          # Keep the compatibility backport isolated from the system Python and
-          # give pip a writable cache location inside this disposable container.
-          VENV=/tmp/cafeglsl-python
-          PIP_CACHE_DIR=/tmp/cafeglsl-pip-cache
-          mkdir -p "$PIP_CACHE_DIR"
-          python3 -m venv "$VENV"
-          PIP_CACHE_DIR="$PIP_CACHE_DIR" "$VENV/bin/python" -m pip install \
-            --disable-pip-version-check backports.tarfile
+            skopeo copy docker://ghcr.io/exzap/cafeglsl-wiiu:latest \
+              "docker-archive:$IMAGE_ARCHIVE:ghcr.io/exzap/cafeglsl-wiiu:latest"
 
-          "$VENV/bin/python" - "$IMAGE_ARCHIVE" "$ROOTFS" <<'PY'
+            # Keep the Python backport and pip download cache with the image's
+            # extracted artifacts so later runs do not reinstall this helper.
+            VENV="$CACHE_DIR/python-venv"
+            PIP_CACHE_DIR="$CACHE_DIR/pip-cache"
+            mkdir -p "$PIP_CACHE_DIR"
+            python3 -m venv "$VENV"
+            PIP_CACHE_DIR="$PIP_CACHE_DIR" "$VENV/bin/python" -m pip install \
+              --disable-pip-version-check backports.tarfile
+
+            "$VENV/bin/python" - "$IMAGE_ARCHIVE" "$ROOTFS" <<'PY'
           import json
           import pathlib
           import sys
@@ -796,7 +838,7 @@ jobs:
           def extract_layer(layer_archive, destination):
               # The backport supplies Python 3.12's safe "data" filter on older
               # interpreters. Extraction stays inside the temporary root before
-              # only the published /artifacts subtree is copied into DEVKITPRO.
+              # only the published /artifacts subtree is cached and installed.
               with tarfile.open(fileobj=layer_archive, mode="r:*") as layer:
                   layer.extractall(destination, filter="data")
 
@@ -815,17 +857,22 @@ jobs:
                   if layer_file is None:
                       raise SystemExit(f"CafeGLSL archive layer is missing: {layer_name}")
                   extract_layer(layer_file, root)
-
           PY
 
-          test -d "$ROOTFS/artifacts" || {
-            echo "CafeGLSL image did not contain /artifacts"
-            find "$ROOTFS" -maxdepth 5 -type f | head -100
-            exit 1
-          }
-          cp -a "$ROOTFS/artifacts/." "$DEVKITPRO/"
-          HEADER=$(find "$DEVKITPRO" -path '*/include/cafeglsl/CafeGLSLCompiler.h' -print -quit)
-          LIBRARY=$(find "$DEVKITPRO" -path '*/lib/libcafeglsl.a' -print -quit)
+            test -d "$ROOTFS/artifacts" || {
+              echo "CafeGLSL image did not contain /artifacts"
+              find "$ROOTFS" -maxdepth 5 -type f | head -100
+              exit 1
+            }
+            tar -C "$ROOTFS/artifacts" -cf "$ARTIFACTS_ARCHIVE" .
+            test -s "$ARTIFACTS_ARCHIVE"
+          else
+            echo "Using CafeGLSL runtime compiler artifacts restored from cache."
+          fi
+
+          tar -xf "$ARTIFACTS_ARCHIVE" -C "$DEVKITPRO"
+          HEADER="$(find "$DEVKITPRO" -path '*/include/cafeglsl/CafeGLSLCompiler.h' -print -quit)"
+          LIBRARY="$(find "$DEVKITPRO" -path '*/lib/libcafeglsl.a' -print -quit)"
           test -n "$HEADER" && test -n "$LIBRARY" || {
             echo "CafeGLSL Wii U portlib header/library not found after extraction"
             find "$DEVKITPRO" -name '*cafeglsl*' -o -name 'CafeGLSLCompiler.h' | head -100
@@ -833,6 +880,14 @@ jobs:
           }
           echo "CafeGLSL header: $HEADER"
           echo "CafeGLSL library: $LIBRARY"
+
+      - name: Save CafeGLSL Wii U runtime compiler cache
+        if: success() && steps.cache-cafeglsl.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5.0.4
+        with:
+          path: .cafeglsl-cache
+          key: cafeglsl-wiiu-${{ steps.cafeglsl-image.outputs.digest }}
+
       - name: Configure (CMake)
         shell: bash
         run: |
