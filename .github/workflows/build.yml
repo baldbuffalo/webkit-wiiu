@@ -967,7 +967,6 @@ jobs:
       # This is a required build input: any generator or offset-extractor failure
       # must stop the job instead of allowing later compilation to continue.
       - name: Generate LLIntAssembly.h
-        continue-on-error: false
         shell: bash
         run: |
           set -euo pipefail
