@@ -28,6 +28,9 @@ SELECTORS = {
     "Source/WebCore/platform/audio/WKC": ("platform/audio/WKC/*.cpp",),
     "Source/WebCore/platform/mediastream/WKC": ("platform/mediastream/WKC/*.cpp",),
     "Source/WebCore/platform/network/wkc": ("platform/network/wkc/*.cpp",),
+    # Real WKC accessibility backend: platform AX cache/object hooks are
+    # compiled alongside WebCore's generic accessibility tree implementation.
+    "Source/WebCore/accessibility/wkc": ("accessibility/wkc/*.cpp",),
     "Source/WebKit/WKC": ("webkit/*.cpp", "WebCoreSupport/*.cpp", "helpers/*.cpp", "accessor/*.cpp"),
 }
 
