@@ -84,6 +84,21 @@ String AccessibilityObject::roleDescription() const
     return isValid() ? toWKCString(m_private->webcore()->roleDescription()) : String();
 }
 
+String AccessibilityObject::ariaRoleDescription() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->ariaRoleDescription()) : String();
+}
+
+String AccessibilityObject::currentValue() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->currentValue()) : String();
+}
+
+String AccessibilityObject::popupValue() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->popupValueString()) : String();
+}
+
 String AccessibilityObject::title() const
 {
     return isValid() ? toWKCString(m_private->webcore()->title()) : String();
@@ -193,6 +208,36 @@ bool AccessibilityObject::supportsPressAction() const
     return isValid() && m_private->webcore()->supportsPressAction();
 }
 
+bool AccessibilityObject::isPressed() const
+{
+    return isValid() && m_private->webcore()->isPressed();
+}
+
+bool AccessibilityObject::isVisited() const
+{
+    return isValid() && m_private->webcore()->isVisited();
+}
+
+bool AccessibilityObject::isModal() const
+{
+    return isValid() && m_private->webcore()->isModalNode();
+}
+
+bool AccessibilityObject::hasPopup() const
+{
+    return isValid() && m_private->webcore()->hasPopup();
+}
+
+int AccessibilityObject::posInSet() const
+{
+    return isValid() ? m_private->webcore()->posInSet() : 0;
+}
+
+int AccessibilityObject::setSize() const
+{
+    return isValid() ? m_private->webcore()->setSize() : 0;
+}
+
 WKCFloatRect AccessibilityObject::frame() const
 {
     if (!isValid())
@@ -225,6 +270,53 @@ AccessibilityObject AccessibilityObject::parent() const
     if (!isValid())
         return { };
     return AccessibilityObjectPrivate::create(m_private->webcore()->parentObjectUnignored());
+}
+
+static WebCore::AXRelation toWebCoreRelation(AccessibilityObject::Relation relation)
+{
+    switch (relation) {
+    case AccessibilityObject::Relation::None: return WebCore::AXRelation::None;
+    case AccessibilityObject::Relation::Actions: return WebCore::AXRelation::Actions;
+    case AccessibilityObject::Relation::ActionsOf: return WebCore::AXRelation::ActionsOf;
+    case AccessibilityObject::Relation::ActiveDescendant: return WebCore::AXRelation::ActiveDescendant;
+    case AccessibilityObject::Relation::ActiveDescendantOf: return WebCore::AXRelation::ActiveDescendantOf;
+    case AccessibilityObject::Relation::ControlledBy: return WebCore::AXRelation::ControlledBy;
+    case AccessibilityObject::Relation::ControllerFor: return WebCore::AXRelation::ControllerFor;
+    case AccessibilityObject::Relation::DescribedBy: return WebCore::AXRelation::DescribedBy;
+    case AccessibilityObject::Relation::DescriptionFor: return WebCore::AXRelation::DescriptionFor;
+    case AccessibilityObject::Relation::Details: return WebCore::AXRelation::Details;
+    case AccessibilityObject::Relation::DetailsFor: return WebCore::AXRelation::DetailsFor;
+    case AccessibilityObject::Relation::ErrorMessage: return WebCore::AXRelation::ErrorMessage;
+    case AccessibilityObject::Relation::ErrorMessageFor: return WebCore::AXRelation::ErrorMessageFor;
+    case AccessibilityObject::Relation::FlowsFrom: return WebCore::AXRelation::FlowsFrom;
+    case AccessibilityObject::Relation::FlowsTo: return WebCore::AXRelation::FlowsTo;
+    case AccessibilityObject::Relation::Headers: return WebCore::AXRelation::Headers;
+    case AccessibilityObject::Relation::HeaderFor: return WebCore::AXRelation::HeaderFor;
+    case AccessibilityObject::Relation::LabeledBy: return WebCore::AXRelation::LabeledBy;
+    case AccessibilityObject::Relation::LabelFor: return WebCore::AXRelation::LabelFor;
+    case AccessibilityObject::Relation::NativeLabeledBy: return WebCore::AXRelation::NativeLabeledBy;
+    case AccessibilityObject::Relation::NativeLabelFor: return WebCore::AXRelation::NativeLabelFor;
+    case AccessibilityObject::Relation::OwnedBy: return WebCore::AXRelation::OwnedBy;
+    case AccessibilityObject::Relation::OwnerFor: return WebCore::AXRelation::OwnerFor;
+    }
+    return WebCore::AXRelation::None;
+}
+
+unsigned AccessibilityObject::relatedObjectCount(Relation relation) const
+{
+    return isValid() ? m_private->webcore()->relatedObjects(toWebCoreRelation(relation)).size() : 0;
+}
+
+AccessibilityObject AccessibilityObject::relatedObjectAt(Relation relation, unsigned index) const
+{
+    if (!isValid())
+        return { };
+
+    auto objects = m_private->webcore()->relatedObjects(toWebCoreRelation(relation));
+    if (index >= objects.size())
+        return { };
+
+    return AccessibilityObjectPrivate::create(objects[index].ptr());
 }
 
 bool AccessibilityObject::press() const
