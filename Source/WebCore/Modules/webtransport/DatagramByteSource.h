@@ -26,6 +26,7 @@
 #pragma once
 
 #include "DatagramSource.h"
+#include <WebCore/Exception.h>
 #include <wtf/RefCounted.h>
 
 namespace JSC {
@@ -36,7 +37,6 @@ namespace WebCore {
 
 class WebTransport;
 class DeferredPromise;
-class Exception;
 class JSDOMGlobalObject;
 class ReadableByteStreamController;
 
