@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "Exception.h"
+#include <WebCore/Exception.h>
 #include "ReadableStreamSource.h"
 #include <wtf/AbstractRefCounted.h>
 #include <wtf/Deque.h>
