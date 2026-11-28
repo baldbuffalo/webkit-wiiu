@@ -38,6 +38,7 @@
 #include "JSDOMConvertInterface.h"
 #include "JSDOMConvertNullable.h"
 #include "JSDOMConvertSequences.h"
+#include "JSDOMWrapperCache.h"
 #include "JSHTMLElementWrapperFactory.h"
 #include "JSMathMLElementWrapperFactory.h"
 #include "JSNodeCustom.h"
