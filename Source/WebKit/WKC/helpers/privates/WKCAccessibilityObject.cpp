@@ -181,6 +181,37 @@ String AccessibilityObject::accessKey() const
     return isValid() ? toWKCString(m_private->webcore()->accessKey()) : String();
 }
 
+String AccessibilityObject::placeholderValue() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->placeholderValue()) : String();
+}
+
+String AccessibilityObject::extendedDescription() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->extendedDescription()) : String();
+}
+
+String AccessibilityObject::valueDescription() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->valueDescription()) : String();
+}
+
+String AccessibilityObject::linkURL() const
+{
+    if (!isValid() || !m_private->webcore()->isLink())
+        return { };
+
+    auto url = m_private->webcore()->url();
+    // A link's user-info is not useful to assistive navigation and can contain credentials.
+    url.removeCredentials();
+    return toWKCString(url.string());
+}
+
+String AccessibilityObject::linkRelation() const
+{
+    return isValid() && m_private->webcore()->isLink() ? toWKCString(m_private->webcore()->linkRelValue()) : String();
+}
+
 bool AccessibilityObject::isHeading() const
 {
     return isValid() && m_private->webcore()->isHeading();
@@ -226,6 +257,156 @@ bool AccessibilityObject::isTableCell() const
     return isValid() && m_private->webcore()->isTableCell();
 }
 
+bool AccessibilityObject::isButton() const
+{
+    return isValid() && m_private->webcore()->isButton();
+}
+
+bool AccessibilityObject::isCheckbox() const
+{
+    return isValid() && m_private->webcore()->isCheckbox();
+}
+
+bool AccessibilityObject::isRadioButton() const
+{
+    return isValid() && m_private->webcore()->isRadioButton();
+}
+
+bool AccessibilityObject::isList() const
+{
+    return isValid() && m_private->webcore()->isList();
+}
+
+bool AccessibilityObject::isListItem() const
+{
+    return isValid() && m_private->webcore()->isListItem();
+}
+
+bool AccessibilityObject::isListBox() const
+{
+    return isValid() && m_private->webcore()->isListBox();
+}
+
+bool AccessibilityObject::isListBoxOption() const
+{
+    return isValid() && m_private->webcore()->isListBoxOption();
+}
+
+bool AccessibilityObject::isMenu() const
+{
+    return isValid() && m_private->webcore()->isMenu();
+}
+
+bool AccessibilityObject::isMenuBar() const
+{
+    return isValid() && m_private->webcore()->isMenuBar();
+}
+
+bool AccessibilityObject::isMenuItem() const
+{
+    return isValid() && m_private->webcore()->isMenuItem();
+}
+
+bool AccessibilityObject::isProgressIndicator() const
+{
+    return isValid() && m_private->webcore()->isProgressIndicator();
+}
+
+bool AccessibilityObject::isSlider() const
+{
+    return isValid() && m_private->webcore()->isSlider();
+}
+
+bool AccessibilityObject::isSpinButton() const
+{
+    return isValid() && m_private->webcore()->isSpinButton();
+}
+
+bool AccessibilityObject::isSwitch() const
+{
+    return isValid() && m_private->webcore()->isSwitch();
+}
+
+bool AccessibilityObject::isToggleButton() const
+{
+    return isValid() && m_private->webcore()->isToggleButton();
+}
+
+bool AccessibilityObject::isTabList() const
+{
+    return isValid() && m_private->webcore()->isTabList();
+}
+
+bool AccessibilityObject::isTabItem() const
+{
+    return isValid() && m_private->webcore()->isTabItem();
+}
+
+bool AccessibilityObject::isRadioGroup() const
+{
+    return isValid() && m_private->webcore()->isRadioGroup();
+}
+
+bool AccessibilityObject::isComboBox() const
+{
+    return isValid() && m_private->webcore()->isComboBox();
+}
+
+bool AccessibilityObject::isDateTime() const
+{
+    return isValid() && m_private->webcore()->isDateTime();
+}
+
+bool AccessibilityObject::isGrid() const
+{
+    return isValid() && m_private->webcore()->isGrid();
+}
+
+bool AccessibilityObject::isTree() const
+{
+    return isValid() && m_private->webcore()->isTree();
+}
+
+bool AccessibilityObject::isTreeGrid() const
+{
+    return isValid() && m_private->webcore()->isTreeGrid();
+}
+
+bool AccessibilityObject::isTreeItem() const
+{
+    return isValid() && m_private->webcore()->isTreeItem();
+}
+
+bool AccessibilityObject::isToolbar() const
+{
+    return isValid() && m_private->webcore()->isToolbar();
+}
+
+bool AccessibilityObject::isLandmark() const
+{
+    return isValid() && m_private->webcore()->isLandmark();
+}
+
+bool AccessibilityObject::isMeter() const
+{
+    return isValid() && m_private->webcore()->isMeter();
+}
+
+bool AccessibilityObject::isPopUpButton() const
+{
+    return isValid() && m_private->webcore()->isPopUpButton();
+}
+
+bool AccessibilityObject::isScrollArea() const
+{
+    return isValid() && m_private->webcore()->isScrollArea();
+}
+
+bool AccessibilityObject::isCanvas() const
+{
+    return isValid() && m_private->webcore()->isCanvas();
+}
+
 bool AccessibilityObject::isKeyboardFocusable() const
 {
     return isValid() && m_private->webcore()->isKeyboardFocusable();
@@ -259,6 +440,26 @@ bool AccessibilityObject::isARIAHidden() const
 bool AccessibilityObject::isOutput() const
 {
     return isValid() && m_private->webcore()->isOutput();
+}
+
+bool AccessibilityObject::supportsRangeValue() const
+{
+    return isValid() && m_private->webcore()->supportsRangeValue();
+}
+
+float AccessibilityObject::rangeValue() const
+{
+    return supportsRangeValue() ? m_private->webcore()->valueForRange() : 0.0f;
+}
+
+float AccessibilityObject::minimumRangeValue() const
+{
+    return supportsRangeValue() ? m_private->webcore()->minValueForRange() : 0.0f;
+}
+
+float AccessibilityObject::maximumRangeValue() const
+{
+    return supportsRangeValue() ? m_private->webcore()->maxValueForRange() : 0.0f;
 }
 
 unsigned AccessibilityObject::headingLevel() const
@@ -403,6 +604,39 @@ AccessibilityObject AccessibilityObject::parent() const
     if (!isValid())
         return { };
     return AccessibilityObjectPrivate::create(m_private->webcore()->parentObjectUnignored());
+}
+
+AccessibilityObject AccessibilityObject::nextSibling() const
+{
+    return isValid() ? AccessibilityObjectPrivate::create(m_private->webcore()->nextSiblingUnignored()) : AccessibilityObject { };
+}
+
+AccessibilityObject AccessibilityObject::previousSibling() const
+{
+    return isValid() ? AccessibilityObjectPrivate::create(m_private->webcore()->previousSiblingUnignored()) : AccessibilityObject { };
+}
+
+unsigned AccessibilityObject::documentLinkCount() const
+{
+    return isValid() ? m_private->webcore()->documentLinks().size() : 0;
+}
+
+AccessibilityObject AccessibilityObject::documentLinkAt(unsigned index) const
+{
+    if (!isValid())
+        return { };
+
+    auto links = m_private->webcore()->documentLinks();
+    if (index >= links.size())
+        return { };
+
+    return AccessibilityObjectPrivate::create(links[index].ptr());
+}
+
+void AccessibilityObject::scrollToMakeVisible() const
+{
+    if (isValid())
+        m_private->webcore()->scrollToMakeVisible();
 }
 
 AccessibilityObject AccessibilityObject::hitTest(int x, int y) const

@@ -70,6 +70,11 @@ public:
     String language() const;
     String languageIncludingAncestors() const;
     String accessKey() const;
+    String placeholderValue() const;
+    String extendedDescription() const;
+    String valueDescription() const;
+    String linkURL() const;
+    String linkRelation() const;
 
     bool isHeading() const;
     bool isLink() const;
@@ -80,6 +85,36 @@ public:
     bool isTable() const;
     bool isTableRow() const;
     bool isTableCell() const;
+    bool isButton() const;
+    bool isCheckbox() const;
+    bool isRadioButton() const;
+    bool isList() const;
+    bool isListItem() const;
+    bool isListBox() const;
+    bool isListBoxOption() const;
+    bool isMenu() const;
+    bool isMenuBar() const;
+    bool isMenuItem() const;
+    bool isProgressIndicator() const;
+    bool isSlider() const;
+    bool isSpinButton() const;
+    bool isSwitch() const;
+    bool isToggleButton() const;
+    bool isTabList() const;
+    bool isTabItem() const;
+    bool isRadioGroup() const;
+    bool isComboBox() const;
+    bool isDateTime() const;
+    bool isGrid() const;
+    bool isTree() const;
+    bool isTreeGrid() const;
+    bool isTreeItem() const;
+    bool isToolbar() const;
+    bool isLandmark() const;
+    bool isMeter() const;
+    bool isPopUpButton() const;
+    bool isScrollArea() const;
+    bool isCanvas() const;
     bool isKeyboardFocusable() const;
     bool canSetFocus() const;
     bool isOnScreen() const;
@@ -87,6 +122,10 @@ public:
     bool isBusy() const;
     bool isARIAHidden() const;
     bool isOutput() const;
+    bool supportsRangeValue() const;
+    float rangeValue() const;
+    float minimumRangeValue() const;
+    float maximumRangeValue() const;
     unsigned headingLevel() const;
     unsigned ariaLevel() const;
 
@@ -117,6 +156,12 @@ public:
     unsigned childCount() const;
     AccessibilityObject childAt(unsigned index) const;
     AccessibilityObject parent() const;
+    AccessibilityObject nextSibling() const;
+    AccessibilityObject previousSibling() const;
+    unsigned documentLinkCount() const;
+    AccessibilityObject documentLinkAt(unsigned index) const;
+    // Scroll this object into the visible viewport.
+    void scrollToMakeVisible() const;
     // Hit-test in WebCore view coordinates; call on the accessibility root object.
     AccessibilityObject hitTest(int x, int y) const;
     unsigned rowCount() const;
