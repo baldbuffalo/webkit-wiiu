@@ -57,6 +57,9 @@ public:
     String title() const;
     // Computed accessible name (ARIA, native labels, alt text and contents).
     String accessibleName() const;
+    // Author-provided ARIA Braille text, kept separate from the visual accessible name.
+    String brailleLabel() const;
+    String brailleRoleDescription() const;
     // Text to announce for this object, including ARIA live-region content.
     String announcementText() const;
     String keyShortcuts() const;

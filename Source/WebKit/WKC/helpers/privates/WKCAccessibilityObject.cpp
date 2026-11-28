@@ -123,6 +123,16 @@ String AccessibilityObject::announcementText() const
     return toWKCString(object ? object->announcementText() : m_private->webcore()->text());
 }
 
+String AccessibilityObject::brailleLabel() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->brailleLabel()) : String();
+}
+
+String AccessibilityObject::brailleRoleDescription() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->brailleRoleDescription()) : String();
+}
+
 String AccessibilityObject::keyShortcuts() const
 {
     return isValid() ? toWKCString(m_private->webcore()->keyShortcuts()) : String();
