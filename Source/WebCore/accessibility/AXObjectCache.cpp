@@ -8266,7 +8266,7 @@ AXTextChange AXObjectCache::textChangeForEditType(AXTextEditType type)
     case AXTextEditType::Unknown:
         AX_ASSERT_NOT_REACHED();
         return AXTextChange::Inserted;
-    }    }
+    }
 
     // Keep the return path defined if AXTextEditType gains a value without a
     // corresponding case before this switch is updated.

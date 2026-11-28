@@ -23,6 +23,7 @@
 
 #include "config.h"
 #include "JSDOMWindowBase.h"
+#include "JSGlobalObjectInlines.h"
 
 #include "Chrome.h"
 #include "CommonVM.h"
