@@ -322,6 +322,9 @@ def main() -> int:
         + parse_cmake_list(cmake_source, "WebCore_IDL_FILES")
     )
     main_idls = [WEBCORE / item for item in dict.fromkeys(main_idl_relatives)]
+    node_list_idl = WEBCORE / "dom" / "NodeList.idl"
+    if node_list_idl not in main_idls:
+        raise RuntimeError("NodeList.idl is missing from the generated WebCore main IDL set")
     missing = [path for path in main_idls if not path.is_file()]
     if missing:
         raise RuntimeError(
@@ -364,7 +367,6 @@ def main() -> int:
         GEN / "DOMConstructors.h",
         GEN / "DOMWindowConstructors.idl",
         GEN / "WorkerGlobalScopeConstructors.idl",
-        GEN / "ShadowRealmGlobalScopeConstructors.idl",
         GEN / "DedicatedWorkerGlobalScopeConstructors.idl",
         GEN / "ServiceWorkerGlobalScopeConstructors.idl",
         GEN / "SharedWorkerGlobalScopeConstructors.idl",
@@ -378,7 +380,6 @@ def main() -> int:
         ("--constructorsHeaderFile", extra_outputs[2]),
         ("--windowConstructorsFile", extra_outputs[3]),
         ("--workerGlobalScopeConstructorsFile", extra_outputs[4]),
-        ("--shadowRealmGlobalScopeConstructorsFile", extra_outputs[5]),
         ("--dedicatedWorkerGlobalScopeConstructorsFile", extra_outputs[6]),
         ("--serviceWorkerGlobalScopeConstructorsFile", extra_outputs[7]),
         ("--sharedWorkerGlobalScopeConstructorsFile", extra_outputs[8]),
@@ -420,6 +421,8 @@ def main() -> int:
         "WebCoreJSBuiltins.h",
         "WebCoreJSBuiltinInternals.h",
         "JSNode.h",
+        "JSNodeList.h",
+        "JSNodeList.cpp",
         "JSEventTarget.h",
         "QuirkBehaviorDeclarations.cpp",
         "QuirkBehaviorDeclarations.h",
