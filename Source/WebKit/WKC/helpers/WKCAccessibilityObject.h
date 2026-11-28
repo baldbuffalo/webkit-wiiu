@@ -117,6 +117,7 @@ public:
     unsigned childCount() const;
     AccessibilityObject childAt(unsigned index) const;
     AccessibilityObject parent() const;
+    // Hit-test in WebCore view coordinates; call on the accessibility root object.
     AccessibilityObject hitTest(int x, int y) const;
     unsigned rowCount() const;
     unsigned columnCount() const;

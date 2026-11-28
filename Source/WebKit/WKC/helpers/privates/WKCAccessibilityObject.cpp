@@ -156,12 +156,14 @@ String AccessibilityObject::value() const
 
 String AccessibilityObject::selectedText() const
 {
-    return isValid() ? toWKCString(m_private->webcore()->selectedText()) : String();
+    // Never return selected characters from a secure text field.
+    return isValid() && !m_private->webcore()->isSecureField() ? toWKCString(m_private->webcore()->selectedText()) : String();
 }
 
 unsigned AccessibilityObject::textLength() const
 {
-    return isValid() ? m_private->webcore()->textLength() : 0;
+    // Do not disclose the character count of secure text fields.
+    return isValid() && !m_private->webcore()->isSecureField() ? m_private->webcore()->textLength() : 0;
 }
 
 String AccessibilityObject::language() const
