@@ -1478,7 +1478,7 @@ jobs:
               # GCC -H reports paths exactly as encountered. Includes such as
               # bindings/js/../../WebCore/JSNodeList.h are valid, but the
               # textual path is not equal to the canonical generated path.
-              match = re.match(r"^\\.+\\s+(.+)$", line.strip())
+              match = re.match(r"^\.+\s+(.+)$", line.strip())
               if match:
                   try:
                       resolved_header_paths.append(pathlib.Path(match.group(1)).resolve())
