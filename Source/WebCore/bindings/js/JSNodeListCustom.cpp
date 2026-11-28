@@ -24,7 +24,10 @@
  */
 
 #include "config.h"
-#include "JSNodeList.h"
+// Resolve WebCore's generated DOM wrapper explicitly. JavaScriptCore also has a
+// generated header with this basename, so an unqualified include can select
+// the wrong JSNodeList declarations when its include directory appears first.
+#include "../../WebCore/JSNodeList.h"
 
 #include "ChildNodeList.h"
 #include "LiveNodeList.h"
