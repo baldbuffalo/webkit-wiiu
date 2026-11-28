@@ -12,6 +12,7 @@
 #include "AccessibilityObject.h"
 
 #include "FloatRect.h"
+#include "IntPoint.h"
 
 namespace WKC {
 
@@ -153,6 +154,121 @@ String AccessibilityObject::value() const
     return isValid() && !m_private->webcore()->isSecureField() ? toWKCString(m_private->webcore()->stringValue()) : String();
 }
 
+String AccessibilityObject::selectedText() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->selectedText()) : String();
+}
+
+unsigned AccessibilityObject::textLength() const
+{
+    return isValid() ? m_private->webcore()->textLength() : 0;
+}
+
+String AccessibilityObject::language() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->language()) : String();
+}
+
+String AccessibilityObject::languageIncludingAncestors() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->languageIncludingAncestors()) : String();
+}
+
+String AccessibilityObject::accessKey() const
+{
+    return isValid() ? toWKCString(m_private->webcore()->accessKey()) : String();
+}
+
+bool AccessibilityObject::isHeading() const
+{
+    return isValid() && m_private->webcore()->isHeading();
+}
+
+bool AccessibilityObject::isLink() const
+{
+    return isValid() && m_private->webcore()->isLink();
+}
+
+bool AccessibilityObject::isImage() const
+{
+    return isValid() && m_private->webcore()->isImage();
+}
+
+bool AccessibilityObject::isWebArea() const
+{
+    return isValid() && m_private->webcore()->isWebArea();
+}
+
+bool AccessibilityObject::isEditableWebArea() const
+{
+    return isValid() && m_private->webcore()->isEditableWebArea();
+}
+
+bool AccessibilityObject::isTextControl() const
+{
+    return isValid() && m_private->webcore()->isTextControl();
+}
+
+bool AccessibilityObject::isTable() const
+{
+    return isValid() && m_private->webcore()->isTable();
+}
+
+bool AccessibilityObject::isTableRow() const
+{
+    return isValid() && m_private->webcore()->isTableRow();
+}
+
+bool AccessibilityObject::isTableCell() const
+{
+    return isValid() && m_private->webcore()->isTableCell();
+}
+
+bool AccessibilityObject::isKeyboardFocusable() const
+{
+    return isValid() && m_private->webcore()->isKeyboardFocusable();
+}
+
+bool AccessibilityObject::canSetFocus() const
+{
+    return isValid() && m_private->webcore()->canSetFocusAttribute();
+}
+
+bool AccessibilityObject::isOnScreen() const
+{
+    return isValid() && m_private->webcore()->isOnScreen();
+}
+
+bool AccessibilityObject::isLoaded() const
+{
+    return isValid() && m_private->webcore()->isLoaded();
+}
+
+bool AccessibilityObject::isBusy() const
+{
+    return isValid() && m_private->webcore()->isBusy();
+}
+
+bool AccessibilityObject::isARIAHidden() const
+{
+    return isValid() && m_private->webcore()->isARIAHidden();
+}
+
+bool AccessibilityObject::isOutput() const
+{
+    return isValid() && m_private->webcore()->isOutput();
+}
+
+unsigned AccessibilityObject::headingLevel() const
+{
+    return isHeading() ? m_private->webcore()->headingLevel() : 0;
+}
+
+unsigned AccessibilityObject::ariaLevel() const
+{
+    return isValid() ? m_private->webcore()->ariaLevel() : 0;
+}
+
 bool AccessibilityObject::isIgnored() const
 {
     return isValid() && m_private->webcore()->isIgnored();
@@ -287,6 +403,59 @@ AccessibilityObject AccessibilityObject::parent() const
     return AccessibilityObjectPrivate::create(m_private->webcore()->parentObjectUnignored());
 }
 
+AccessibilityObject AccessibilityObject::hitTest(int x, int y) const
+{
+    if (!isValid())
+        return { };
+
+    auto hitObject = m_private->webcore()->accessibilityHitTest(WebCore::IntPoint(x, y));
+    return AccessibilityObjectPrivate::create(hitObject.get());
+}
+
+unsigned AccessibilityObject::rowCount() const
+{
+    return isTable() ? m_private->webcore()->rowCount() : 0;
+}
+
+unsigned AccessibilityObject::columnCount() const
+{
+    return isTable() ? m_private->webcore()->columnCount() : 0;
+}
+
+unsigned AccessibilityObject::rowIndex() const
+{
+    return isTableRow() ? m_private->webcore()->rowIndex() : 0;
+}
+
+unsigned AccessibilityObject::columnIndex() const
+{
+    return isTableCell() ? m_private->webcore()->columnIndex() : 0;
+}
+
+AccessibilityObject AccessibilityObject::cellForColumnAndRow(unsigned column, unsigned row) const
+{
+    if (!isTable())
+        return { };
+
+    return AccessibilityObjectPrivate::create(m_private->webcore()->cellForColumnAndRow(column, row));
+}
+
+AccessibilityObject AccessibilityObject::rowHeader() const
+{
+    if (!isTableCell())
+        return { };
+
+    return AccessibilityObjectPrivate::create(m_private->webcore()->rowHeader());
+}
+
+AccessibilityObject AccessibilityObject::columnHeader() const
+{
+    if (!isTableCell())
+        return { };
+
+    return AccessibilityObjectPrivate::create(m_private->webcore()->columnHeader());
+}
+
 static WebCore::AXRelation toWebCoreRelation(AccessibilityObject::Relation relation)
 {
     switch (relation) {
@@ -354,6 +523,18 @@ void AccessibilityObject::setSelected(bool selected) const
 {
     if (isValid())
         m_private->webcore()->setSelected(selected);
+}
+
+void AccessibilityObject::setSelectedText(const String& text) const
+{
+    if (isValid() && m_private->webcore()->canSetTextRangeAttributes())
+        m_private->webcore()->setSelectedText(WTF::String(text));
+}
+
+void AccessibilityObject::setExpanded(bool expanded) const
+{
+    if (isValid() && m_private->webcore()->canSetExpandedAttribute())
+        m_private->webcore()->setIsExpanded(expanded);
 }
 
 } // namespace WKC

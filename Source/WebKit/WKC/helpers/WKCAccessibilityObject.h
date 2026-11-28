@@ -65,6 +65,30 @@ public:
     String description() const;
     String text() const;
     String value() const;
+    String selectedText() const;
+    unsigned textLength() const;
+    String language() const;
+    String languageIncludingAncestors() const;
+    String accessKey() const;
+
+    bool isHeading() const;
+    bool isLink() const;
+    bool isImage() const;
+    bool isWebArea() const;
+    bool isEditableWebArea() const;
+    bool isTextControl() const;
+    bool isTable() const;
+    bool isTableRow() const;
+    bool isTableCell() const;
+    bool isKeyboardFocusable() const;
+    bool canSetFocus() const;
+    bool isOnScreen() const;
+    bool isLoaded() const;
+    bool isBusy() const;
+    bool isARIAHidden() const;
+    bool isOutput() const;
+    unsigned headingLevel() const;
+    unsigned ariaLevel() const;
 
     bool isIgnored() const;
     bool isEnabled() const;
@@ -93,6 +117,14 @@ public:
     unsigned childCount() const;
     AccessibilityObject childAt(unsigned index) const;
     AccessibilityObject parent() const;
+    AccessibilityObject hitTest(int x, int y) const;
+    unsigned rowCount() const;
+    unsigned columnCount() const;
+    unsigned rowIndex() const;
+    unsigned columnIndex() const;
+    AccessibilityObject cellForColumnAndRow(unsigned column, unsigned row) const;
+    AccessibilityObject rowHeader() const;
+    AccessibilityObject columnHeader() const;
     unsigned relatedObjectCount(Relation) const;
     AccessibilityObject relatedObjectAt(Relation, unsigned index) const;
 
@@ -100,6 +132,8 @@ public:
     bool setValue(const String&) const;
     void setFocused(bool) const;
     void setSelected(bool) const;
+    void setSelectedText(const String&) const;
+    void setExpanded(bool) const;
 
 private:
     explicit AccessibilityObject(AccessibilityObjectPrivate*);
