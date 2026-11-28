@@ -1472,12 +1472,22 @@ jobs:
 
           expected_header = (workspace / "Source/WebCore/WebCore/JSNodeList.h").resolve()
           header_lines = [line for line in result.stderr.splitlines() if "JSNodeList.h" in line]
+          resolved_header_paths = []
           for line in header_lines:
               print(line)
-          if not any(str(expected_header) in line for line in header_lines):
+              # GCC -H reports paths exactly as encountered. Includes such as
+              # bindings/js/../../WebCore/JSNodeList.h are valid, but the
+              # textual path is not equal to the canonical generated path.
+              match = re.match(r"^\\.+\\s+(.+)$", line.strip())
+              if match:
+                  try:
+                      resolved_header_paths.append(pathlib.Path(match.group(1)).resolve())
+                  except (OSError, RuntimeError):
+                      continue
+          if expected_header not in resolved_header_paths:
               raise SystemExit(
                   "Compiler did not include the generated Source/WebCore/WebCore/JSNodeList.h; "
-                  f"resolved header trace: {header_lines}"
+                  f"resolved header trace: {[str(path) for path in resolved_header_paths]}"
               )
           for declaration in (r"\bclass\s+JSNodeList\b", r"\bclass\s+JSNodeListOwner\b"):
               if not re.search(declaration, result.stdout):
