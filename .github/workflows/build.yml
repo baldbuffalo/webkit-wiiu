@@ -566,6 +566,9 @@ jobs:
         run: |
           set -euo pipefail
           python3 "$GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/generate-webcore-derived-sources.py"
+          echo "=== Generated JSNodeList.h declaration check ==="
+          grep -nE 'class[[:space:]]+(WEBCORE_EXPORT[[:space:]]+)?JSNodeList(Owner)?([[:space:]:{]|$)' \
+            .generated-cache/JSNodeList.h Source/WebCore/WebCore/JSNodeList.h
 
       # Save generator outputs before compiling. A failed compiler iteration
       # must not force the next push to regenerate the same headers and sources.
@@ -1762,6 +1765,8 @@ jobs:
             build-full-configure.log
             build-full.log
             build/wkc-missing-webcore-sources.txt
+            .generated-cache/JSNodeList.h
+            Source/WebCore/WebCore/JSNodeList.h
             webrtc-configure.log
             webrtc-build.log
           if-no-files-found: ignore

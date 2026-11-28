@@ -437,7 +437,36 @@ def main() -> int:
             "WebCore generation did not produce required headers: " + ", ".join(absent)
         )
 
+    # JSNodeListCustom.cpp is upstream code and depends on the generated
+    # JSNodeList/JSNodeListOwner declarations. A mere file-exists check is not
+    # sufficient: catch an incomplete generated wrapper before cross-compilation.
+    node_list_header = GEN / "JSNodeList.h"
+    node_list_header_text = node_list_header.read_text(encoding="utf-8")
+    required_node_list_declarations = (
+        r"\\bclass\\s+(?:WEBCORE_EXPORT\\s+)?JSNodeList\\b",
+        r"\\bclass\\s+(?:WEBCORE_EXPORT\\s+)?JSNodeListOwner\\b",
+    )
+    for declaration in required_node_list_declarations:
+        if not re.search(declaration, node_list_header_text):
+            preview = "\\n".join(
+                f"{index + 1}: {line}"
+                for index, line in enumerate(node_list_header_text.splitlines()[:160])
+            )
+            raise RuntimeError(
+                "Generated JSNodeList.h is missing required declaration "
+                f"{declaration}. Generated header preview:\\n{preview}"
+            )
+    print(
+        "Verified generated JSNodeList.h contains JSNodeList and JSNodeListOwner.",
+        flush=True,
+    )
+
     copied = copy_generated_headers_and_sources()
+    copied_node_list_header = WKC_CPP_DIR / "JSNodeList.h"
+    if not copied_node_list_header.is_file():
+        raise RuntimeError("Generated JSNodeList.h was not copied into Source/WebCore/WebCore/")
+    if copied_node_list_header.read_bytes() != node_list_header.read_bytes():
+        raise RuntimeError("Copied JSNodeList.h differs from the generator output")
     generated_cpp = len(list(GEN.glob("*.cpp")))
     generated_h = len(list(GEN.glob("*.h")))
     print(
