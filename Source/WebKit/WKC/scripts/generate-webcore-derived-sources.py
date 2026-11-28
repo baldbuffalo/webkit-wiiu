@@ -380,12 +380,12 @@ def main() -> int:
         ("--constructorsHeaderFile", extra_outputs[2]),
         ("--windowConstructorsFile", extra_outputs[3]),
         ("--workerGlobalScopeConstructorsFile", extra_outputs[4]),
-        ("--dedicatedWorkerGlobalScopeConstructorsFile", extra_outputs[6]),
-        ("--serviceWorkerGlobalScopeConstructorsFile", extra_outputs[7]),
-        ("--sharedWorkerGlobalScopeConstructorsFile", extra_outputs[8]),
-        ("--workletGlobalScopeConstructorsFile", extra_outputs[9]),
-        ("--paintWorkletGlobalScopeConstructorsFile", extra_outputs[10]),
-        ("--audioWorkletGlobalScopeConstructorsFile", extra_outputs[11]),
+        ("--dedicatedWorkerGlobalScopeConstructorsFile", extra_outputs[5]),
+        ("--serviceWorkerGlobalScopeConstructorsFile", extra_outputs[6]),
+        ("--sharedWorkerGlobalScopeConstructorsFile", extra_outputs[7]),
+        ("--workletGlobalScopeConstructorsFile", extra_outputs[8]),
+        ("--paintWorkletGlobalScopeConstructorsFile", extra_outputs[9]),
+        ("--audioWorkletGlobalScopeConstructorsFile", extra_outputs[10]),
     ]
     binding_command = [
         "perl", bindings_generator,
